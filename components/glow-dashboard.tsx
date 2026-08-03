@@ -17,6 +17,7 @@ import {
   Droplets,
   Eclipse,
   Eye,
+  Info,
   Layers3,
   LocateFixed,
   MapPin,
@@ -283,7 +284,12 @@ function ModeRail({ active, onChange, sources }: { active: WorkspaceMode; onChan
 
 function ScoreRing({ value, label, confidence, unit = "%" }: { value: number; label: string; confidence?: number; unit?: "%" | "/100" }) {
   return (
-    <div className={`score-ring tone-${probabilityTone(value)}`} style={{ "--score": `${value * 3.6}deg` } as React.CSSProperties}>
+    <div
+      className={`score-ring tone-${probabilityTone(value)}`}
+      style={{ "--score": `${value * 3.6}deg` } as React.CSSProperties}
+      role="img"
+      aria-label={`${label} ${value}${unit}${confidence === undefined ? "" : `，置信度 ${confidence}`}`}
+    >
       <div><strong>{value}</strong><span>{unit}</span><small>{label}</small></div>
       {confidence !== undefined && <b>置信 {confidence}</b>}
     </div>
@@ -297,12 +303,12 @@ function CloudProfile({ event }: { event: EventForecast }) {
     { label: "低云", altitude: "0–2 km", value: event.metrics.lowCloud, color: "low" },
   ];
   return (
-    <section className="cloud-profile compact-section">
-      <header><span><Layers3 size={15} /> 云层垂直剖面</span><small>日出日前后 ± 75 min</small></header>
+    <section className="cloud-profile compact-section" data-compact-role="layers">
+      <header><span><Layers3 size={15} /> 云层垂直剖面</span><small title="日出日前后 75 分钟">± 75 min</small></header>
       <div className="cloud-stack">
         {layers.map((layer) => (
           <div key={layer.label}>
-            <span>{layer.label}<small>{layer.altitude}</small></span>
+            <span title={`${layer.label}典型高度 ${layer.altitude}`}>{layer.label}<small>{layer.altitude}</small></span>
             <div className={layer.color}><i style={{ width: `${layer.value ?? 0}%` }} /></div>
             <strong>{layer.value === null ? "—" : `${Math.round(layer.value)}%`}</strong>
           </div>
@@ -314,30 +320,41 @@ function CloudProfile({ event }: { event: EventForecast }) {
 
 function ModelAgreement({ scores, valueLabel = "独立模式" }: { scores: ({ model: string; probability: number } | { model: string; score: number })[]; valueLabel?: string }) {
   return (
-    <section className="model-agreement compact-section">
+    <section className="model-agreement compact-section" data-compact-role="models">
       <header><span><CircleGauge size={15} /> 模式一致性</span><small>{valueLabel}</small></header>
       {scores.map((score) => {
         const value = "probability" in score ? score.probability : score.score;
-        return <div key={score.model}><span>{score.model}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}</strong></div>;
+        return <div key={score.model} title={`${score.model}：${value}`}><span>{score.model}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}</strong></div>;
       })}
     </section>
   );
 }
 
 function FactorCompact({ items }: { items: ScoreResult["contributions"] }) {
+  const factors = items.slice(0, 5);
+  const scale = Math.max(...factors.map((item) => Math.abs(item.value)), 1);
   return (
-    <section className="factor-compact compact-section">
-      <header><span><CircleGauge size={15} /> 关键依据</span><small>贡献值</small></header>
+    <section className="factor-compact compact-section" data-compact-role="factors">
+      <header><span><CircleGauge size={15} /> 关键依据</span><small>− 阻碍 / 促进 +</small></header>
       <div>
-        {items.slice(0, 5).map((item) => (
-          <article key={item.name} className={item.direction}>
-            <i />
-            <span><strong>{item.name}</strong><small>{item.detail}</small></span>
+        {factors.map((item) => (
+          <article key={item.name} className={item.direction} aria-label={`${item.name}，${item.detail}，贡献值 ${item.value > 0 ? "+" : ""}${item.value}`}>
+            <span className="factor-name"><strong>{item.name}</strong><span className="factor-hint" role="img" tabIndex={0} title={item.detail} data-hint={item.detail} aria-label={`${item.name}说明：${item.detail}`}><Info size={12} /></span></span>
+            <span className="factor-track" aria-hidden="true"><i className="factor-zero" /><i className="factor-bar" style={{ "--factor-size": `${Math.abs(item.value) / scale * 50}%` } as React.CSSProperties} /></span>
             <b>{item.value > 0 ? "+" : ""}{item.value}</b>
           </article>
         ))}
       </div>
     </section>
+  );
+}
+
+function MethodNotice({ title, children, tone = "" }: { title: string; children: React.ReactNode; tone?: string }) {
+  return (
+    <details className={`method-alert ${tone}`}>
+      <summary><AlertTriangle size={14} /><strong>{title}</strong><span>方法边界</span><ChevronDown size={13} /></summary>
+      <p>{children}</p>
+    </details>
   );
 }
 
@@ -348,27 +365,27 @@ function Meteogram({ hourly }: { hourly: HourlyWeatherPoint[] }) {
   const temperatures = hourly.flatMap((point) => [point.temperature, point.dewPoint]).filter((value): value is number => value !== null);
   const minTemp = Math.floor(Math.min(...temperatures, 0) - 2);
   const maxTemp = Math.ceil(Math.max(...temperatures, 10) + 2);
-  const temperatureY = (value: number) => 126 - ((value - minTemp) / Math.max(maxTemp - minTemp, 1)) * 47;
+  const temperatureY = (value: number) => 96 - ((value - minTemp) / Math.max(maxTemp - minTemp, 1)) * 28;
   const path = (key: "temperature" | "dewPoint") => hourly.flatMap((point, index) => point[key] === null ? [] : [`${index ? "L" : "M"}${left + step * (index + .5)},${temperatureY(point[key] as number)}`]).join(" ");
   return (
-    <section className="meteogram compact-section">
+    <section className="meteogram compact-section" data-compact-role="trend">
       <header><span><CloudRain size={15} /> 逐小时气象图</span><div className="meteo-legend"><i className="temp" />气温<i className="dew" />露点</div></header>
       <div className="meteogram-scroll" tabIndex={0} aria-label="横向滚动查看完整逐小时气象图">
-        <svg viewBox={`0 0 ${width} 178`} role="img" aria-label="选定日期逐小时云层、温度、露点和降水图">
+        <svg viewBox={`0 0 ${width} 132`} role="img" aria-label="选定日期逐小时云层、温度、露点和降水图">
           <text x="2" y="20" className="axis-label">H</text><text x="2" y="38" className="axis-label">M</text><text x="2" y="56" className="axis-label">L</text>
           {hourly.map((point, index) => {
             const x = left + step * index;
             return <g key={point.time}>
               {[point.highCloud, point.midCloud, point.lowCloud].map((value, layer) => <rect key={layer} x={x + 1} y={10 + layer * 18} width={Math.max(step - 2, 2)} height="13" rx="2" className={`cloud-cell layer-${layer}`} opacity={.06 + (value ?? 0) / 112} />)}
-              <rect x={x + step * .25} y={160 - Math.min((point.precipitation ?? 0) * 10, 20)} width={step * .5} height={Math.min((point.precipitation ?? 0) * 10, 20)} rx="1" className="rain-bar"><title>{`${point.time.slice(11)} · 降水 ${(point.precipitation ?? 0).toFixed(1)}mm`}</title></rect>
-              {index % 3 === 0 && <text x={x + step / 2} y="174" textAnchor="middle" className="hour-label">{point.time.slice(11, 13)}</text>}
+              <rect x={x + step * .25} y={118 - Math.min((point.precipitation ?? 0) * 7, 14)} width={step * .5} height={Math.min((point.precipitation ?? 0) * 7, 14)} rx="1" className="rain-bar"><title>{`${point.time.slice(11)} · 降水 ${(point.precipitation ?? 0).toFixed(1)}mm`}</title></rect>
+              {index % 3 === 0 && <text x={x + step / 2} y="129" textAnchor="middle" className="hour-label">{point.time.slice(11, 13)}</text>}
             </g>;
           })}
-          {[80, 103, 126].map((y) => <line key={y} x1={left} x2={width - 10} y1={y} y2={y} className="meteo-grid" />)}
+          {[68, 82, 96].map((y) => <line key={y} x1={left} x2={width - 10} y1={y} y2={y} className="meteo-grid" />)}
           <path d={path("temperature")} className="temp-line" />
           <path d={path("dewPoint")} className="dew-line" />
-          <text x="2" y="91" className="temp-value">{maxTemp}°</text><text x="2" y="127" className="temp-value">{minTemp}°</text>
-          <text x="2" y="159" className="axis-label">P</text>
+          <text x="2" y="72" className="temp-value">{maxTemp}°</text><text x="2" y="98" className="temp-value">{minTemp}°</text>
+          <text x="2" y="117" className="axis-label">P</text>
         </svg>
       </div>
     </section>
@@ -414,7 +431,7 @@ function FogPanel({ fog, hourly }: { fog: FogForecast; hourly: HourlyWeatherPoin
         <span><Wind />风速<strong>{fog.metrics.windSpeed === null ? "—" : `${Math.round(fog.metrics.windSpeed)} km/h`}</strong></span>
         <span><Eye />能见度<strong>{fog.metrics.visibility === null ? "—" : `${(fog.metrics.visibility / 1000).toFixed(1)} km`}</strong></span>
       </div>
-      <div className="method-alert"><AlertTriangle size={14} /><span><strong>雾景潜势，不等同于局地平流雾预报</strong>山谷、水面距离和坡向尚未进入模型，落点时应结合实际地形。</span></div>
+      <MethodNotice title="雾景潜势，不等同于局地平流雾预报">山谷、水面距离和坡向尚未进入模型，落点时应结合实际地形。</MethodNotice>
       <Meteogram hourly={hourly} />
       <FactorCompact items={fog.contributions} />
       <ModelAgreement scores={fog.modelScores} />
@@ -490,7 +507,7 @@ function NightPanel({ day, hourly }: { day: DayForecast; hourly: HourlyWeatherPo
         <span><Clock3 />完整黑夜<strong>{Math.floor(night.darknessMinutes / 60)}h {night.darknessMinutes % 60}m</strong></span>
         <span><MoonStar />月光背景<strong>{moonText}</strong></span>
       </div>
-      <div className="method-alert night-limit"><AlertTriangle size={14} /><span><strong>这是气象与天文黑夜机会，不是银河构图保证</strong>光污染、银河核心方位、地形地平线和前景照明尚未进入模型；到场前仍需核对暗空图与机位遮挡。</span></div>
+      <MethodNotice title="气象与天文黑夜机会，不是银河构图保证" tone="night-limit">光污染、银河核心方位、地形地平线和前景照明尚未进入模型；到场前仍需核对暗空图与机位遮挡。</MethodNotice>
       <Meteogram hourly={hourly} />
       <FactorCompact items={night.contributions} />
       <ModelAgreement scores={night.modelScores} />
@@ -528,10 +545,10 @@ function AnalysisCloudLayers({ forecast }: { forecast: WeatherAnalysisForecast }
     { label: "低云", altitude: "0–2 km", value: forecast.metrics.lowCloud, color: "low" },
   ];
   return (
-    <section className="cloud-profile compact-section">
-      <header><span><Layers3 size={15} /> 峰值小时垂直结构</span><small>{localTime(forecast.time)}</small></header>
+    <section className="cloud-profile compact-section" data-compact-role="layers">
+      <header><span><Layers3 size={15} /> 峰值云层</span><small>{localTime(forecast.time)}</small></header>
       <div className="cloud-stack">
-        {layers.map((layer) => <div key={layer.label}><span>{layer.label}<small>{layer.altitude}</small></span><div className={layer.color}><i style={{ width: `${layer.value ?? 0}%` }} /></div><strong>{layer.value === null ? "—" : `${Math.round(layer.value)}%`}</strong></div>)}
+        {layers.map((layer) => <div key={layer.label}><span title={`${layer.label}典型高度 ${layer.altitude}`}>{layer.label}<small>{layer.altitude}</small></span><div className={layer.color}><i style={{ width: `${layer.value ?? 0}%` }} /></div><strong>{layer.value === null ? "—" : `${Math.round(layer.value)}%`}</strong></div>)}
       </div>
     </section>
   );
@@ -566,7 +583,7 @@ function RainAnalysisPanel({ forecast, hourly }: { forecast: WeatherAnalysisFore
         <span><CloudRain />连续性雨<strong>{forecast.metrics.rain === null ? "—" : `${forecast.metrics.rain.toFixed(1)} mm`}</strong></span>
         <span><CloudSun />阵雨<strong>{forecast.metrics.showers === null ? "—" : `${forecast.metrics.showers.toFixed(1)} mm`}</strong></span>
       </div>
-      <div className="method-alert"><AlertTriangle size={14} /><span><strong>降水信号不是降雨概率</strong>CMA GRAPES 不发布该字段；系统用明确的小时雨量补足信号，并始终把缺失值显示为“未提供”。峰值时段天气代码：{wmoLabel(forecast.metrics.weatherCode)}。</span></div>
+      <MethodNotice title="降水信号不是降雨概率">CMA GRAPES 不发布该字段；系统用明确的小时雨量补足信号，并始终把缺失值显示为“未提供”。峰值时段天气代码：{wmoLabel(forecast.metrics.weatherCode)}。</MethodNotice>
       <Meteogram hourly={hourly} />
       <ModelAgreement scores={forecast.modelScores} valueLabel="综合降水信号" />
     </>
@@ -577,12 +594,6 @@ function RainbowAnalysisPanel({ forecast, hourly }: { forecast: WeatherAnalysisF
   const amount = precipitationAmount(forecast.metrics);
   return (
     <>
-      <section className="rainbow-hero">
-        <div className="rainbow-arc" aria-hidden="true"><i /><i /><i /></div>
-        <span className="scene-eyebrow">RAIN + DIRECT SUNLIGHT + GEOMETRY</span>
-        <h2>{forecast.level}</h2>
-        <p>{forecast.summary}</p>
-      </section>
       <AnalysisReadout forecast={forecast} label="当日最佳彩虹潜势窗口" />
       <div className="quick-metrics four">
         <span><CloudSun />直射辐射<strong>{forecast.metrics.directRadiation === null ? "—" : `${Math.round(forecast.metrics.directRadiation)} W/m²`}</strong></span>
@@ -590,7 +601,7 @@ function RainbowAnalysisPanel({ forecast, hourly }: { forecast: WeatherAnalysisF
         <span><CloudRain />同小时降水<strong>{amount === null ? "—" : `${amount.toFixed(1)} mm`}</strong></span>
         <span><Navigation />建议观察方向<strong>{compass(forecast.viewingAzimuth)}</strong></span>
       </div>
-      <div className="method-alert rainbow-limit"><AlertTriangle size={14} /><span><strong>这是物理条件潜势，不是“此处必见彩虹”</strong>彩虹要求太阳在观察者身后、雨幕位于前方；单点网格不能判断雨幕的空间方位。建议面向反太阳方向现场寻找局地阵雨。</span></div>
+      <MethodNotice title="这是物理条件潜势，不是“此处必见彩虹”" tone="rainbow-limit">彩虹要求太阳在观察者身后、雨幕位于前方；单点网格不能判断雨幕的空间方位。建议面向反太阳方向现场寻找局地阵雨。</MethodNotice>
       <Meteogram hourly={hourly} />
       <ModelAgreement scores={forecast.modelScores} valueLabel="彩虹条件信号" />
     </>
@@ -607,15 +618,15 @@ function WeatherAnalysisPanel({ mode, day, hourly }: { mode: WeatherAnalysisMode
 function FieldBriefing({ point, targetLabel, elevation }: { point: HourlyWeatherPoint; targetLabel: string; elevation: number | null }) {
   const spread = point.temperature !== null && point.dewPoint !== null ? Math.max(0, point.temperature - point.dewPoint) : null;
   return (
-    <section className="field-briefing compact-section" aria-label="拍摄时刻现场简报">
+    <section className="field-briefing compact-section" aria-label="拍摄时刻现场简报" data-compact-role="field">
       <header><span><Clock3 size={15} /> 拍摄时刻现场简报</span><small>{targetLabel} · {localTime(point.time)}</small></header>
       <div>
-        <span><Thermometer /><small>气温 / 露点差</small><strong>{point.temperature?.toFixed(0) ?? "—"}° · {spread === null ? "—" : `${spread.toFixed(1)}°`}</strong></span>
-        <span><Wind /><small>持续风 / 阵风</small><strong>{point.windSpeed?.toFixed(0) ?? "—"} / {point.windGusts?.toFixed(0) ?? "—"} km/h</strong></span>
-        <span><Navigation /><small>来风方向</small><strong>{compass(point.windDirection)}</strong></span>
-        <span><CircleGauge /><small>气压 / 海拔</small><strong>{point.pressure?.toFixed(0) ?? "—"} hPa · {elevation === null ? "—" : `${Math.round(elevation)} m`}</strong></span>
+        <span title="露点差接近 0°C 时应准备镜头加热带和防潮措施"><Thermometer /><small>气温 / 露点差</small><strong>{point.temperature?.toFixed(0) ?? "—"}° · {spread === null ? "—" : `${spread.toFixed(1)}°`}</strong></span>
+        <span title="阵风会影响长焦与脚架稳定"><Wind /><small>持续风 / 阵风</small><strong>{point.windSpeed?.toFixed(0) ?? "—"} / {point.windGusts?.toFixed(0) ?? "—"} km/h</strong></span>
+        <span title="风向表示风吹来的方向"><Navigation /><small>来风方向</small><strong>{compass(point.windDirection)}</strong></span>
+        <span title="事件时刻的海平面气压与定位点海拔"><CircleGauge /><small>气压 / 海拔</small><strong>{point.pressure?.toFixed(0) ?? "—"}hPa · {elevation === null ? "—" : `${Math.round(elevation)}m`}</strong></span>
       </div>
-      <p>阵风影响长焦与脚架稳定；露点差接近 0°C 时应准备镜头加热带和防潮措施。</p>
+      <p className="sr-only">阵风影响长焦与脚架稳定；露点差接近 0°C 时应准备镜头加热带和防潮措施。</p>
     </section>
   );
 }
@@ -638,7 +649,7 @@ function EclipsePanel({ event, type, data }: { event: EclipseForecast; type: "lu
       <div className="eclipse-timeline">
         <span><i />初始<strong>{localDateTime(event.begin)}</strong></span><b /><span><i />食甚<strong>{localDateTime(event.peak)}</strong></span><b /><span><i />结束<strong>{localDateTime(event.end)}</strong></span>
       </div>
-      <div className="method-alert"><AlertTriangle size={14} /><span><strong>天文几何可长期精确计算，天气不能</strong>食象日期来自 Astronomy Engine；云量只能在进入七天天气窗口后评估。</span></div>
+      <MethodNotice title="天文几何可长期计算，天气不能">食象日期来自 Astronomy Engine；云量只能在进入七天天气窗口后评估。</MethodNotice>
       {!isLunar && <p className="safety-note">严禁用肉眼或普通减光镜直视太阳，拍摄日食必须使用合格的太阳滤镜。</p>}
     </>
   );
@@ -668,15 +679,17 @@ function Inspector({ data, day, mode, glowKind, setGlowKind, hourly, fieldPoint,
         <span className="data-fresh"><i /> {new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).format(new Date(data.generatedAt))}</span>
       </header>
       <div className="inspector-scroll">
-        {mode === "glow" && <GlowPanel day={day} kind={glowKind} setKind={setGlowKind} hourly={hourly} />}
-        {mode === "fog" && <FogPanel fog={day.fog} hourly={hourly} />}
-        {mode === "sun" && <SunPanel day={day} hourly={hourly} />}
-        {mode === "moon" && <MoonPanel day={day} hourly={hourly} />}
-        {mode === "stars" && <NightPanel day={day} hourly={hourly} />}
-        {mode === "lunar-eclipse" && <EclipsePanel event={data.astronomy.nextLunarEclipse} type="lunar" data={data} />}
-        {mode === "solar-eclipse" && <EclipsePanel event={data.astronomy.nextSolarEclipse} type="solar" data={data} />}
-        {(mode === "cloud" || mode === "rain" || mode === "rainbow") && <WeatherAnalysisPanel mode={mode} day={day} hourly={hourly} />}
-        {fieldPoint && <FieldBriefing point={fieldPoint} targetLabel={fieldLabel} elevation={data.location.elevation} />}
+        <div className={`tool-panel tool-panel-${mode}`} data-compact-dashboard={mode}>
+          {mode === "glow" && <GlowPanel day={day} kind={glowKind} setKind={setGlowKind} hourly={hourly} />}
+          {mode === "fog" && <FogPanel fog={day.fog} hourly={hourly} />}
+          {mode === "sun" && <SunPanel day={day} hourly={hourly} />}
+          {mode === "moon" && <MoonPanel day={day} hourly={hourly} />}
+          {mode === "stars" && <NightPanel day={day} hourly={hourly} />}
+          {mode === "lunar-eclipse" && <EclipsePanel event={data.astronomy.nextLunarEclipse} type="lunar" data={data} />}
+          {mode === "solar-eclipse" && <EclipsePanel event={data.astronomy.nextSolarEclipse} type="solar" data={data} />}
+          {(mode === "cloud" || mode === "rain" || mode === "rainbow") && <WeatherAnalysisPanel mode={mode} day={day} hourly={hourly} />}
+          {fieldPoint && <FieldBriefing point={fieldPoint} targetLabel={fieldLabel} elevation={data.location.elevation} />}
+        </div>
         <SourceDisclosure data={data} />
         <p className="inspector-disclaimer">机会指数用于摄影计划，不替代气象灾害预警。山体、建筑和局地微气候仍需现场判断。</p>
       </div>

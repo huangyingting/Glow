@@ -36,7 +36,8 @@ async function expectHealthyLayout(page: Page) {
       [".primary-readout p", 12],
       [".quick-metrics > span", 10],
       [".compact-section > header > span", 12],
-      [".method-alert span", 10],
+      [".factor-name strong", 11],
+      [".method-alert summary strong", 12],
       [".panel-footnote", 10],
       [".source-disclosure small", 10],
     ] as const;
@@ -83,6 +84,36 @@ async function expectHealthyLayout(page: Page) {
   expect(diagnostics.horizontalOverflow).toBeLessThanOrEqual(1);
 }
 
+async function expectCompactDashboard(page: Page, viewport: { width: number; height: number }) {
+  const diagnostics = await page.evaluate(() => {
+    const panel = document.querySelector<HTMLElement>("[data-compact-dashboard]");
+    const clip = document.querySelector<HTMLElement>(".inspector-scroll")?.getBoundingClientRect();
+    const visibleRoles = [...document.querySelectorAll<HTMLElement>("[data-compact-role]")]
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return clip && rect.top >= clip.top - 1 && rect.bottom <= clip.bottom + 1;
+      })
+      .map((element) => element.dataset.compactRole);
+    return {
+      columns: panel ? window.getComputedStyle(panel).gridTemplateColumns.split(" ").filter(Boolean).length : 0,
+      factorRows: document.querySelectorAll(".factor-compact article").length,
+      factorHints: [...document.querySelectorAll<HTMLElement>(".factor-hint")].filter((element) => element.dataset.hint?.trim() && element.tabIndex === 0).length,
+      visibleRoles,
+    };
+  });
+
+  expect(diagnostics.columns).toBe(viewport.width <= 520 ? 1 : 2);
+  expect(diagnostics.factorRows).toBe(5);
+  expect(diagnostics.factorHints).toBe(5);
+  const firstHint = page.locator(".factor-hint").first();
+  await firstHint.focus();
+  await expect.poll(() => firstHint.evaluate((element) => window.getComputedStyle(element, "::after").opacity)).toBe("1");
+  await firstHint.evaluate((element) => element.blur());
+  if (viewport.width >= 1440 && viewport.height >= 900) {
+    expect(diagnostics.visibleRoles).toEqual(expect.arrayContaining(["layers", "factors", "trend", "models", "field"]));
+  }
+}
+
 for (const viewport of viewports) {
   test(`complete UI action and screenshot audit at ${viewport.name}`, async ({ page, context }) => {
     const consoleErrors: string[] = [];
@@ -102,6 +133,7 @@ for (const viewport of viewports) {
     await expect(page.locator("[data-map-ready=true]")).toBeVisible();
     await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
     await expectHealthyLayout(page);
+    await expectCompactDashboard(page, viewport);
     await capture(page, viewport.name, "01-glow-dusk");
 
     await page.getByLabel("霁光摄影天气工作台").click();
@@ -168,6 +200,14 @@ for (const viewport of viewports) {
     for (const [index, mode] of modes.entries()) {
       await page.getByTitle(mode, { exact: true }).click();
       await expect(page.getByRole("heading", { name: mode, exact: true })).toBeVisible();
+      const methodNotice = page.locator(".method-alert");
+      if (await methodNotice.count()) {
+        await methodNotice.locator("summary").click();
+        await expect(methodNotice).toHaveAttribute("open", "");
+        await expect(methodNotice.locator("p")).toBeVisible();
+        await methodNotice.locator("summary").click();
+        await expect(methodNotice).not.toHaveAttribute("open", "");
+      }
       await expectHealthyLayout(page);
       await capture(page, viewport.name, `${String(index + 9).padStart(2, "0")}-${mode.replaceAll(" / ", "-")}`);
     }
