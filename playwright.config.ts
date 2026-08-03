@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: false,
   timeout: 60_000,
   expect: { timeout: 15_000 },
-  reporter: "list",
+  reporter: [["list"], ["json", { outputFile: "test-results/playwright-results.json" }]],
   use: {
     baseURL: "http://127.0.0.1:3000",
     trace: "retain-on-failure",

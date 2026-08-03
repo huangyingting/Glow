@@ -40,8 +40,9 @@ export const CITIES: City[] = [
   { id: "hefei", name: "合肥", province: "安徽省", latitude: 31.8206, longitude: 117.2272, timezone: "Asia/Shanghai", region: "华东" },
 ];
 
-export function findCity(id: string | null): City {
-  return CITIES.find((city) => city.id === id) ?? CITIES[0];
+export function findCity(id: string | null): City | null {
+  if (id === null) return CITIES[0];
+  return CITIES.find((city) => city.id === id) ?? null;
 }
 
 export function nearestCity(latitude: number, longitude: number): City {
@@ -52,6 +53,35 @@ export function nearestCity(latitude: number, longitude: number): City {
   }, CITIES[0]);
 }
 
+type Coordinate = readonly [longitude: number, latitude: number];
+
+const SUPPORTED_AREA_POLYGONS: readonly Coordinate[][] = [
+  [
+    [73.5, 39.5], [74.5, 36], [78.5, 32], [79.5, 29], [85, 28.2], [88.5, 27.2],
+    [92.5, 27.5], [97.5, 24.5], [100.5, 21.1], [103.5, 22], [107, 21.3],
+    [108, 21.5], [109.5, 20], [111, 20.5], [111.5, 21.5], [114.5, 22.3],
+    [117.5, 23.5], [120, 27], [122, 31.5], [121.7, 34], [122.3, 37], [124, 39.5],
+    [124, 40.5], [128, 42], [131, 43], [134.5, 48], [132, 49.5], [130, 52.8],
+    [120, 53.5], [116, 49.8], [111, 49], [108, 45], [104, 42.5], [96, 42.8],
+    [90, 45], [82, 49], [77, 49], [74, 45],
+  ],
+  [[108.5, 18], [111.5, 18], [111.5, 20.7], [108.5, 20.7]],
+  [[119.8, 21.7], [122.3, 21.7], [122.3, 25.6], [119.8, 25.6]],
+];
+
+function pointInPolygon(latitude: number, longitude: number, polygon: readonly Coordinate[]) {
+  let inside = false;
+  for (let current = 0, previous = polygon.length - 1; current < polygon.length; previous = current, current += 1) {
+    const [currentX, currentY] = polygon[current];
+    const [previousX, previousY] = polygon[previous];
+    const crosses = (currentY > latitude) !== (previousY > latitude)
+      && longitude < ((previousX - currentX) * (latitude - currentY)) / (previousY - currentY) + currentX;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
 export function isWithinChina(latitude: number, longitude: number) {
-  return latitude >= 18 && latitude <= 54 && longitude >= 73 && longitude <= 135;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  return SUPPORTED_AREA_POLYGONS.some((polygon) => pointInPolygon(latitude, longitude, polygon));
 }

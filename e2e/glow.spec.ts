@@ -7,7 +7,7 @@ test("API returns the professional weather and local astronomy payload", async (
   expect(payload.location.name).toBe("北京");
   expect(payload.days).toHaveLength(7);
   expect(payload.hourly).toHaveLength(168);
-  expect(payload.days[0].fog.modelScores).toHaveLength(2);
+  expect(payload.days[0].fog.modelScores.length).toBeGreaterThanOrEqual(1);
   expect(payload.days[0].solar.sunriseAzimuth).toBeGreaterThan(0);
   expect(payload.days[0].moon.illumination).toBeGreaterThanOrEqual(0);
   expect(payload.days[0].moon.calculatedAt).not.toBe(payload.days[6].moon.calculatedAt);
@@ -17,12 +17,43 @@ test("API returns the professional weather and local astronomy payload", async (
   expect(payload.hourly[0].windGusts).not.toBeNull();
   expect(payload.astronomy.nextLunarEclipse.visible).toBe(true);
   expect(payload.astronomy.nextSolarEclipse.visible).toBe(true);
-  expect(payload.sources.every((source: { status: string }) => source.status === "available")).toBeTruthy();
+  expect(payload.sources.map((source: { id: string }) => source.id)).toEqual(["ecmwf_ifs025", "cma_grapes_global", "cams_global"]);
+  expect(payload.sources.slice(0, 2).some((source: { status: string }) => source.status === "available")).toBeTruthy();
 
   expect((await request.get("/api/forecast?lat=1&lon=1")).status()).toBe(400);
+  expect((await request.get("/api/forecast?lat=37.5665&lon=126.978")).status()).toBe(400);
+  expect((await request.get("/api/forecast?city=not-a-city")).status()).toBe(400);
   const coordinate = await request.get("/api/forecast?lat=31.23&lon=121.47&name=测试落点");
   expect(coordinate.ok()).toBeTruthy();
   expect(coordinate.headers()["cache-control"]).toContain("private");
+});
+
+test("refresh, degraded source health, and rejected map picks stay truthful", async ({ page }) => {
+  await page.route("**/api/forecast?city=beijing", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.sources[0].status = "unavailable";
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+  await expect(page.getByRole("status", { name: "2/3 个天气数据源在线" })).toBeVisible();
+
+  const refreshed = page.waitForResponse((response) => response.url().includes("/api/forecast?city=beijing") && response.request().resourceType() === "fetch");
+  await page.getByRole("button", { name: "刷新当前预测" }).click();
+  await refreshed;
+  await expect(page.getByRole("button", { name: "刷新当前预测" })).toBeEnabled();
+
+  const markerBefore = await page.locator(".map-pin-marker").boundingBox();
+  const map = await page.locator(".weather-map").boundingBox();
+  expect(markerBefore).not.toBeNull();
+  expect(map).not.toBeNull();
+  const rejected = page.waitForResponse((response) => response.url().includes("/api/forecast?lat=") && response.status() === 400);
+  await page.mouse.click(map!.x + map!.width * .96, map!.y + map!.height * .5);
+  await rejected;
+  await expect(page.locator(".workspace-toast")).toContainText("中国天气区域");
+  await expect(page.locator(".coordinate-hud")).toContainText("北京");
+  await expect.poll(async () => (await page.locator(".map-pin-marker").boundingBox())?.x).toBeCloseTo(markerBefore!.x, 0);
 });
 
 test("map click moves the observation point and recalculates all photography modes", async ({ page }) => {

@@ -218,25 +218,27 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
         {query ? <button type="button" aria-label="清空搜索" onClick={() => { setQuery(""); setActiveIndex(-1); inputRef.current?.focus(); }}><X size={14} /></button> : <span className="search-shortcut">⌘/Ctrl K</span>}
       </div>
       {open && (
-        <div id="city-search-results" className="workspace-results" role="listbox" aria-label="城市搜索结果">
-          <div className="results-caption"><span>常用观测地</span><small>{filtered.length} 个结果</small></div>
-          {filtered.map((city, index) => (
-            <button
-              key={city.id}
-              id={`city-option-${city.id}`}
-              type="button"
-              role="option"
-              aria-selected={current.id === city.id}
-              data-active={activeIndex === index ? "true" : undefined}
-              onPointerEnter={() => setActiveIndex(index)}
-              onClick={() => selectCity(city)}
-            >
-              <MapPin size={14} />
-              <span><strong>{city.name}</strong><small>{city.province} · {city.latitude.toFixed(2)}°N</small></span>
-              {current.id === city.id && <Check size={14} />}
-            </button>
-          ))}
-          {!filtered.length && <p>未找到城市，可直接在地图上点击任意中国境内位置。</p>}
+        <div className="workspace-results">
+          <div id="city-search-results" className="results-listbox" role="listbox" aria-label="城市搜索结果">
+            <div className="results-caption"><span>常用观测地</span><small>{filtered.length} 个结果</small></div>
+            {filtered.map((city, index) => (
+              <button
+                key={city.id}
+                id={`city-option-${city.id}`}
+                type="button"
+                role="option"
+                aria-selected={current.id === city.id}
+                data-active={activeIndex === index ? "true" : undefined}
+                onPointerEnter={() => setActiveIndex(index)}
+                onClick={() => selectCity(city)}
+              >
+                <MapPin size={14} />
+                <span><strong>{city.name}</strong><small>{city.province} · {city.latitude.toFixed(2)}°N</small></span>
+                {current.id === city.id && <Check size={14} />}
+              </button>
+            ))}
+            {!filtered.length && <p>未找到城市，可直接在地图上点击任意中国天气区域内的位置。</p>}
+          </div>
           <button className="result-locate" type="button" onClick={() => { onLocate(); setOpen(false); setActiveIndex(-1); }}><LocateFixed size={15} /> 使用当前定位</button>
         </div>
       )}
@@ -244,7 +246,9 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
   );
 }
 
-function ModeRail({ active, onChange }: { active: PhotographyMode; onChange: (mode: PhotographyMode) => void }) {
+function ModeRail({ active, onChange, sources }: { active: PhotographyMode; onChange: (mode: PhotographyMode) => void; sources?: ForecastResponse["sources"] }) {
+  const availableSources = sources?.filter((source) => source.status === "available").length ?? 0;
+  const healthLabel = sources ? `${availableSources}/${sources.length} 个天气数据源在线` : "天气数据加载中";
   return (
     <nav className="mode-rail" aria-label="摄影场景">
       <span className="rail-label">PHOTO MODE</span>
@@ -258,7 +262,7 @@ function ModeRail({ active, onChange }: { active: PhotographyMode; onChange: (mo
         );
       })}
       <div className="rail-spacer" />
-      <div className="rail-data" role="status" aria-label="三源数据在线" title="三源数据在线"><Database size={18} /><i /></div>
+      <div className="rail-data" role="status" aria-label={healthLabel} title={healthLabel} data-state={!sources ? "loading" : availableSources === sources.length ? "healthy" : "degraded"}><Database size={18} /><i /></div>
     </nav>
   );
 }
@@ -332,7 +336,7 @@ function Meteogram({ hourly }: { hourly: HourlyWeatherPoint[] }) {
   return (
     <section className="meteogram compact-section">
       <header><span><CloudRain size={15} /> 逐小时气象图</span><div className="meteo-legend"><i className="temp" />气温<i className="dew" />露点</div></header>
-      <div className="meteogram-scroll">
+      <div className="meteogram-scroll" tabIndex={0} aria-label="横向滚动查看完整逐小时气象图">
         <svg viewBox={`0 0 ${width} 178`} role="img" aria-label="选定日期逐小时云层、温度、露点和降水图">
           <text x="2" y="20" className="axis-label">H</text><text x="2" y="38" className="axis-label">M</text><text x="2" y="56" className="axis-label">L</text>
           {hourly.map((point, index) => {
@@ -437,7 +441,7 @@ function MoonPanel({ day, hourly }: { day: DayForecast; hourly: HourlyWeatherPoi
     <>
       <section className="moon-readout">
         <div className="moon-disc" style={{ "--moon-light": `${moon.illumination}%` } as React.CSSProperties}><i /></div>
-        <div><span className="scene-eyebrow">{day.shortDate} · BEST MOON WINDOW</span><h3>{moon.phaseName}</h3><strong>{moon.probability}% <small>拍摄机会</small></strong><p>{localTime(moon.time)} · {moon.summary}</p></div>
+        <div><span className="scene-eyebrow">{day.shortDate} · BEST MOON WINDOW</span><h2>{moon.phaseName}</h2><strong>{moon.probability}% <small>拍摄机会</small></strong><p>{localTime(moon.time)} · {moon.summary}</p></div>
       </section>
       <div className="quick-metrics four">
         <span><MoonStar />照明<strong>{moon.illumination}%</strong></span>
@@ -501,7 +505,7 @@ function EclipsePanel({ event, type, data }: { event: EclipseForecast; type: "lu
       <section className={`eclipse-hero ${isLunar ? "lunar" : "solar"}`}>
         <div className="eclipse-symbol"><span /><i /></div>
         <span className="scene-eyebrow">NEXT LOCALLY VISIBLE EVENT</span>
-        <h3>{KIND_LABEL[event.kind]} · {isLunar ? "月食" : "日食"}</h3>
+        <h2>{KIND_LABEL[event.kind]} · {isLunar ? "月食" : "日食"}</h2>
         <p>{data.location.name}定位点的下一次峰值可见事件</p>
       </section>
       <div className="eclipse-primary">
@@ -523,6 +527,7 @@ function SourceDisclosure({ data }: { data: ForecastResponse }) {
       <summary><span><Database size={14} /> 数据与模型</span><ChevronDown size={14} /></summary>
       <div>
         {data.sources.map((source) => <p key={source.id}><i className={source.status} /><span><strong>{source.name}</strong><small>{source.role}</small></span></p>)}
+        <p><i className="available" /><span><strong><a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo ↗</a></strong><small>天气与空气质量统一接口 · CC BY 4.0 数据归属</small></span></p>
         <p><i className="available" /><span><strong>Astronomy Engine</strong><small>VSOP87 / 天体位置与食象搜索</small></span></p>
       </div>
     </details>
@@ -535,7 +540,7 @@ function Inspector({ data, day, mode, glowKind, setGlowKind, hourly, fieldPoint,
   return (
     <aside className="inspector" aria-label={`${definition.label}专业数据面板`}>
       <header className="inspector-header">
-        <div className="scene-title"><span><Icon size={18} /></span><div><small>ACTIVE SCENE</small><h2>{definition.label}</h2></div></div>
+        <div className="scene-title"><span><Icon size={18} /></span><div><small>ACTIVE SCENE</small><h1>{definition.label}</h1></div></div>
         <span className="data-fresh"><i /> {new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).format(new Date(data.generatedAt))}</span>
       </header>
       <div className="inspector-scroll">
@@ -627,23 +632,27 @@ export function GlowDashboard() {
   const [glowKind, setGlowKind] = useState<GlowKind>("dusk");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const requestRef = useRef(0);
+  const currentUrlRef = useRef("/api/forecast?city=beijing");
 
-  const loadForecast = useCallback(async (url: string) => {
+  const loadForecast = useCallback(async (url: string, force = false) => {
     const request = ++requestRef.current;
     setStatus((current) => current === "loading" ? "loading" : "updating");
     setError(null);
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, force ? { cache: "no-store" } : undefined);
       const payload = await response.json() as ForecastResponse | { error: string };
       if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "天气数据加载失败");
-      if (request !== requestRef.current) return;
+      if (request !== requestRef.current) return true;
       setData(payload);
+      currentUrlRef.current = url;
       setSelectedIndex(payload.recommendedIndex);
       setStatus("ready");
+      return true;
     } catch (reason) {
-      if (request !== requestRef.current) return;
+      if (request !== requestRef.current) return true;
       setError(reason instanceof Error ? reason.message : "天气数据加载失败");
       setStatus((current) => current === "updating" ? "ready" : "error");
+      return false;
     }
   }, []);
 
@@ -663,9 +672,7 @@ export function GlowDashboard() {
   const target = data && day ? fieldTarget(mode, day, data, glowKind) : null;
   const fieldPoint = useMemo(() => data && target ? closestHour(data.hourly, target.time) : null, [data, target]);
   const score = data && day ? modeScore(mode, day, data, glowKind) : 0;
-  const pickCoordinate = useCallback((latitude: number, longitude: number) => {
-    void loadForecast(`/api/forecast?lat=${latitude.toFixed(5)}&lon=${longitude.toFixed(5)}&name=${encodeURIComponent("地图落点")}`);
-  }, [loadForecast]);
+  const pickCoordinate = useCallback((latitude: number, longitude: number) => loadForecast(`/api/forecast?lat=${latitude.toFixed(5)}&lon=${longitude.toFixed(5)}&name=${encodeURIComponent("地图落点")}`), [loadForecast]);
   const locate = () => {
     if (!navigator.geolocation) { setError("当前浏览器不支持定位"); return; }
     navigator.geolocation.getCurrentPosition(
@@ -683,17 +690,25 @@ export function GlowDashboard() {
   const eventAzimuth = mode === "solar-eclipse" ? data?.astronomy.nextSolarEclipse.azimuth ?? null : null;
   return (
     <main className="photo-workspace">
+      <a className="skip-link" href="#workspace">跳到摄影工作区</a>
       <header className="workspace-header">
         <a className="workspace-brand" href="#workspace" aria-label="霁光摄影天气工作台"><BrandMark /><span className="product-edition">PRO</span></a>
         <LocationSearch current={current} onSelect={(city) => void loadForecast(`/api/forecast?city=${city.id}`)} onLocate={locate} />
         <div className="header-status">
-          <span className={status === "updating" ? "syncing" : ""}><RefreshCw size={14} />{status === "updating" ? "重算中" : "数据同步"}</span>
+          <span className="sr-only" role="status" aria-live="polite">{status === "loading" ? "正在加载天气数据" : status === "updating" ? "正在刷新当前预测" : status === "error" ? "天气数据加载失败" : "预测已更新"}</span>
+          <button
+            type="button"
+            className={`refresh-forecast ${status === "updating" ? "syncing" : ""}`}
+            onClick={() => void loadForecast(currentUrlRef.current, true)}
+            disabled={status === "loading" || status === "updating"}
+            aria-label="刷新当前预测"
+          ><RefreshCw size={14} /><span>{status === "updating" ? "刷新中" : "刷新预测"}</span></button>
           <button type="button" onClick={locate} aria-label="定位我的位置"><Crosshair size={17} /></button>
         </div>
       </header>
 
-      <div className="workspace-body" id="workspace">
-        <ModeRail active={mode} onChange={setMode} />
+      <div className="workspace-body" id="workspace" tabIndex={-1}>
+        <ModeRail active={mode} onChange={setMode} sources={data?.sources} />
         <section className="map-stage">
           <WeatherMap
             location={current}
@@ -731,7 +746,7 @@ export function GlowDashboard() {
         {data && day ? <Inspector data={data} day={day} mode={mode} glowKind={glowKind} setGlowKind={setGlowKind} hourly={hourly} fieldPoint={fieldPoint} fieldLabel={target?.label ?? "拍摄窗口"} /> : (
           <aside className="inspector inspector-loading">
             <div className="loading-heading"><span /><div><i /><b /></div></div><div className="loading-score" /><div className="loading-block" /><div className="loading-block short" />
-            {status === "error" && <div className="workspace-error"><AlertTriangle /><h2>数据暂时不可用</h2><p>{error}</p><button type="button" onClick={() => void loadForecast("/api/forecast?city=beijing")}>重新连接</button></div>}
+            {status === "error" && <div className="workspace-error"><AlertTriangle /><h1>数据暂时不可用</h1><p>{error}</p><button type="button" onClick={() => void loadForecast(currentUrlRef.current)}>重新连接</button></div>}
           </aside>
         )}
       </div>

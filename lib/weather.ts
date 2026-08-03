@@ -19,6 +19,13 @@ interface ModelConfig {
   role: string;
 }
 
+type ForecastFetcher = (url: URL) => Promise<unknown>;
+
+interface ForecastOptions {
+  fetcher?: ForecastFetcher;
+  now?: Date;
+}
+
 const MODELS: ModelConfig[] = [
   { id: "ecmwf_ifs025", name: "ECMWF IFS", role: "全球中期预报基准，负责大尺度云系" },
   { id: "cma_grapes_global", name: "CMA GRAPES", role: "中国气象局模式，补充中国区域判断" },
@@ -392,17 +399,47 @@ function formatDay(date: string) {
   };
 }
 
-async function fetchJson<T>(url: URL): Promise<T> {
-  const response = await fetch(url, {
-    headers: { "User-Agent": "Jiguang-Sky-Forecast/0.1" },
-    next: { revalidate: 1800 },
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!response.ok) throw new Error(`Weather provider returned ${response.status}`);
-  return response.json() as Promise<T>;
+async function fetchJson(url: URL): Promise<unknown> {
+  let failure: unknown = new Error("Weather provider unavailable");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: { "User-Agent": "Jiguang-Sky-Forecast/0.1" },
+        next: { revalidate: 1800 },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (response.ok) return response.json() as Promise<unknown>;
+      failure = new Error(`Weather provider returned ${response.status}`);
+      if (response.status !== 429 && response.status < 500) break;
+    } catch (error) {
+      failure = error;
+    }
+    if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  throw failure;
 }
 
-async function fetchModel(city: City, model: ModelConfig) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function validForecastPayload(value: unknown): value is OpenMeteoForecast {
+  if (!isRecord(value) || !isRecord(value.hourly) || !isRecord(value.daily)) return false;
+  const hourlyTime = value.hourly.time;
+  const dailyTime = value.daily.time;
+  const sunrise = value.daily.sunrise;
+  const sunset = value.daily.sunset;
+  return Array.isArray(hourlyTime) && hourlyTime.length >= 168
+    && Array.isArray(dailyTime) && dailyTime.length === 7
+    && Array.isArray(sunrise) && sunrise.length === dailyTime.length
+    && Array.isArray(sunset) && sunset.length === dailyTime.length;
+}
+
+function validAirPayload(value: unknown): value is OpenMeteoAir {
+  return isRecord(value) && isRecord(value.hourly) && Array.isArray(value.hourly.time) && value.hourly.time.length >= 168;
+}
+
+async function fetchModel(city: City, model: ModelConfig, fetcher: ForecastFetcher) {
   const url = new URL(FORECAST_URL);
   url.search = new URLSearchParams({
     latitude: city.latitude.toString(),
@@ -413,10 +450,12 @@ async function fetchModel(city: City, model: ModelConfig) {
     forecast_days: "7",
     models: model.id,
   }).toString();
-  return fetchJson<OpenMeteoForecast>(url);
+  const payload = await fetcher(url);
+  if (!validForecastPayload(payload)) throw new Error("Weather provider returned an invalid forecast payload");
+  return payload;
 }
 
-async function fetchAir(city: City) {
+async function fetchAir(city: City, fetcher: ForecastFetcher) {
   const url = new URL(AIR_URL);
   url.search = new URLSearchParams({
     latitude: city.latitude.toString(),
@@ -425,19 +464,23 @@ async function fetchAir(city: City) {
     timezone: city.timezone,
     forecast_days: "7",
   }).toString();
-  return fetchJson<OpenMeteoAir>(url);
+  const payload = await fetcher(url);
+  if (!validAirPayload(payload)) throw new Error("Weather provider returned an invalid air-quality payload");
+  return payload;
 }
 
-function recommendedDayIndex(days: DayForecast[]) {
-  const nowInChina = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16);
+function recommendedDayIndex(days: DayForecast[], now: Date) {
+  const nowInChina = new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16);
   const index = days.findIndex((day) => day.sunset >= nowInChina);
   return index < 0 ? 0 : index;
 }
 
-export async function getForecast(city: City): Promise<ForecastResponse> {
+export async function getForecast(city: City, options: ForecastOptions = {}): Promise<ForecastResponse> {
+  const fetcher = options.fetcher ?? fetchJson;
+  const now = options.now ?? new Date();
   const [modelResults, airResult] = await Promise.all([
-    Promise.allSettled(MODELS.map(async (config) => ({ config, data: await fetchModel(city, config) }))),
-    fetchAir(city).catch(() => null),
+    Promise.allSettled(MODELS.map(async (config) => ({ config, data: await fetchModel(city, config, fetcher) }))),
+    fetchAir(city, fetcher).catch(() => null),
   ]);
   const available = modelResults.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   if (!available.length) throw new Error("当前天气源暂时不可用，请稍后再试");
@@ -465,11 +508,11 @@ export async function getForecast(city: City): Promise<ForecastResponse> {
 
   return {
     location: { ...city, elevation: reference.elevation ?? null },
-    generatedAt: new Date().toISOString(),
-    recommendedIndex: recommendedDayIndex(days),
+    generatedAt: now.toISOString(),
+    recommendedIndex: recommendedDayIndex(days, now),
     days,
     hourly: buildHourly(available, airResult),
-    astronomy: getAstronomy(city),
+    astronomy: getAstronomy(city, now),
     sources: [
       ...MODELS.map((model, index) => ({
         id: model.id,

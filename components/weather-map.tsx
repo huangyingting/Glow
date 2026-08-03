@@ -13,7 +13,7 @@ interface WeatherMapProps {
   sunsetAzimuth: number | null;
   moonAzimuth: number | null;
   eventAzimuth: number | null;
-  onPick: (latitude: number, longitude: number) => void;
+  onPick: (latitude: number, longitude: number) => Promise<boolean>;
 }
 
 const DEFAULT_MAP_STYLE: StyleSpecification = {
@@ -69,6 +69,7 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
   const directionOverlayRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
+  const dragOriginRef = useRef<{ lng: number; lat: number } | null>(null);
   const pickRef = useRef(onPick);
   const initialRef = useRef({ location, mode, score, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth });
   const directionRef = useRef({ location, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth });
@@ -115,7 +116,7 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
     });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "bottom-right");
-    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "天气 · ECMWF / CMA / CAMS" }), "bottom-left");
+    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "天气 · Open-Meteo · ECMWF / CMA / CAMS" }), "bottom-left");
 
     const markerNode = document.createElement("div");
     markerNode.className = "map-pin-marker";
@@ -128,15 +129,26 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
       .setLngLat([initial.location.longitude, initial.location.latitude])
       .addTo(map);
     markerRef.current = marker;
-    marker.on("dragstart", () => containerRef.current?.classList.add("map-moving"));
+    marker.on("dragstart", () => {
+      const origin = marker.getLngLat();
+      dragOriginRef.current = { lng: origin.lng, lat: origin.lat };
+      containerRef.current?.classList.add("map-moving");
+    });
     marker.on("dragend", () => {
       containerRef.current?.classList.remove("map-moving");
       const point = marker.getLngLat();
-      pickRef.current(point.lat, point.lng);
+      const origin = dragOriginRef.current;
+      void pickRef.current(point.lat, point.lng).then((accepted) => {
+        if (!accepted && origin) marker.setLngLat(origin);
+        dragOriginRef.current = null;
+      });
     });
     map.on("click", (event: MapMouseEvent) => {
+      const origin = marker.getLngLat();
       marker.setLngLat(event.lngLat);
-      pickRef.current(event.lngLat.lat, event.lngLat.lng);
+      void pickRef.current(event.lngLat.lat, event.lngLat.lng).then((accepted) => {
+        if (!accepted) marker.setLngLat(origin);
+      });
     });
     map.on("move", () => positionDirectionOverlay(map));
     map.on("error", () => setWarning(true));

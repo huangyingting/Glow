@@ -8,10 +8,12 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run lib",
+    "test": "vitest run lib app",
     "test:e2e": "playwright test",
+    "test:a11y": "playwright test e2e/accessibility.spec.ts",
+    "verify:audit": "node scripts/verify-audit-coverage.mjs",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build",
-    "verify": "npm run check && npm run test:e2e"
+    "verify": "npm run check && npm run test:e2e && npm run verify:audit"
   },
   "dependencies": {
     "astronomy-engine": "^2.1.19",
@@ -22,6 +24,7 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.62.1",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
