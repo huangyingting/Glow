@@ -12,16 +12,16 @@ import {
   SearchLunarEclipse,
   SearchRiseSet,
 } from "astronomy-engine";
-import type { AstronomySummary, City, EclipseForecast, SolarWindow } from "@/lib/types";
+import type { AstronomySummary, City, EclipseForecast, MoonGeometry, SolarWindow } from "@/lib/types";
 
-function localDateStart(date: Date) {
-  const china = new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+function localDateStart(date: Date, dateKey?: string) {
+  const china = dateKey ?? new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
   return new Date(`${china}T00:00:00+08:00`);
 }
 
-function horizontal(body: Body, date: Date, observer: Observer) {
+function horizontal(body: Body, date: Date, observer: Observer, applyRefraction = true) {
   const equatorial = Equator(body, date, observer, true, true);
-  return Horizon(date, observer, equatorial.ra, equatorial.dec, "normal");
+  return Horizon(date, observer, equatorial.ra, equatorial.dec, applyRefraction ? "normal" : undefined);
 }
 
 function phaseName(angle: number) {
@@ -37,10 +37,10 @@ function phaseName(angle: number) {
 
 function visibleLunarEclipse(start: Date, observer: Observer): EclipseForecast {
   let eclipse = SearchLunarEclipse(start);
-  let altitude = horizontal(Body.Moon, eclipse.peak.date, observer).altitude;
-  for (let index = 0; index < 12 && altitude <= 0; index += 1) {
+  let position = horizontal(Body.Moon, eclipse.peak.date, observer);
+  for (let index = 0; index < 12 && position.altitude <= 0; index += 1) {
     eclipse = NextLunarEclipse(eclipse.peak);
-    altitude = horizontal(Body.Moon, eclipse.peak.date, observer).altitude;
+    position = horizontal(Body.Moon, eclipse.peak.date, observer);
   }
   const halfDuration = eclipse.sd_penum || eclipse.sd_partial || eclipse.sd_total;
   return {
@@ -49,8 +49,9 @@ function visibleLunarEclipse(start: Date, observer: Observer): EclipseForecast {
     begin: new Date(eclipse.peak.date.getTime() - halfDuration * 60000).toISOString(),
     end: new Date(eclipse.peak.date.getTime() + halfDuration * 60000).toISOString(),
     obscuration: eclipse.obscuration,
-    altitude,
-    visible: altitude > 0,
+    altitude: position.altitude,
+    azimuth: position.azimuth,
+    visible: position.altitude > 0,
   };
 }
 
@@ -59,6 +60,7 @@ function visibleSolarEclipse(start: Date, observer: Observer): EclipseForecast {
   for (let index = 0; index < 12 && eclipse.peak.altitude <= 0; index += 1) {
     eclipse = NextLocalSolarEclipse(eclipse.peak.time, observer);
   }
+  const position = horizontal(Body.Sun, eclipse.peak.time.date, observer);
   return {
     kind: eclipse.kind,
     peak: eclipse.peak.time.date.toISOString(),
@@ -66,29 +68,44 @@ function visibleSolarEclipse(start: Date, observer: Observer): EclipseForecast {
     end: eclipse.partial_end.time.date.toISOString(),
     obscuration: eclipse.obscuration,
     altitude: eclipse.peak.altitude,
+    azimuth: position.azimuth,
     visible: eclipse.peak.altitude > 0,
+  };
+}
+
+export function getMoonGeometry(city: City, at: Date, dateKey?: string): MoonGeometry {
+  const observer = new Observer(city.latitude, city.longitude, 0);
+  const moonPosition = horizontal(Body.Moon, at, observer);
+  const phaseAngle = MoonPhase(at);
+  const illumination = Illumination(Body.Moon, at).phase_fraction;
+  const start = localDateStart(at, dateKey);
+  const moonrise = SearchRiseSet(Body.Moon, observer, 1, start, 1.25);
+  const moonset = SearchRiseSet(Body.Moon, observer, -1, start, 1.25);
+  return {
+    calculatedAt: at.toISOString(),
+    phaseAngle,
+    phaseName: phaseName(phaseAngle),
+    illumination: Math.round(illumination * 100),
+    altitude: moonPosition.altitude,
+    azimuth: moonPosition.azimuth,
+    rise: moonrise?.date.toISOString() ?? null,
+    set: moonset?.date.toISOString() ?? null,
+  };
+}
+
+export function getMoonPosition(city: City, at: Date) {
+  const observer = new Observer(city.latitude, city.longitude, 0);
+  const position = horizontal(Body.Moon, at, observer);
+  return {
+    altitude: position.altitude,
+    azimuth: position.azimuth,
+    illumination: Math.round(Illumination(Body.Moon, at).phase_fraction * 100),
   };
 }
 
 export function getAstronomy(city: City, at = new Date()): AstronomySummary {
   const observer = new Observer(city.latitude, city.longitude, 0);
-  const moonPosition = horizontal(Body.Moon, at, observer);
-  const phaseAngle = MoonPhase(at);
-  const illumination = Illumination(Body.Moon, at).phase_fraction;
-  const start = localDateStart(at);
-  const moonrise = SearchRiseSet(Body.Moon, observer, 1, start, 2);
-  const moonset = SearchRiseSet(Body.Moon, observer, -1, start, 2);
   return {
-    calculatedAt: at.toISOString(),
-    moon: {
-      phaseAngle,
-      phaseName: phaseName(phaseAngle),
-      illumination: Math.round(illumination * 100),
-      altitude: moonPosition.altitude,
-      azimuth: moonPosition.azimuth,
-      rise: moonrise?.date.toISOString() ?? null,
-      set: moonset?.date.toISOString() ?? null,
-    },
     nextLunarEclipse: visibleLunarEclipse(at, observer),
     nextSolarEclipse: visibleSolarEclipse(at, observer),
   };
@@ -102,6 +119,10 @@ function azimuthAt(date: Date, observer: Observer) {
   return horizontal(Body.Sun, date, observer).azimuth;
 }
 
+export function getSolarAltitude(city: City, at: Date) {
+  return horizontal(Body.Sun, at, new Observer(city.latitude, city.longitude, 0), false).altitude;
+}
+
 export function getSolarWindow(city: City, sunrise: string, sunset: string): SolarWindow {
   const observer = new Observer(city.latitude, city.longitude, 0);
   const date = sunrise.slice(0, 10);
@@ -109,6 +130,11 @@ export function getSolarWindow(city: City, sunrise: string, sunset: string): Sol
   const noon = new Date(`${date}T12:00:00+08:00`);
   const sunriseDate = new Date(`${sunrise}:00+08:00`);
   const sunsetDate = new Date(`${sunset}:00+08:00`);
+  const eveningAstronomicalStart = crossing(Body.Sun, observer, -1, noon, -18);
+  const morningAstronomicalEnd = crossing(Body.Sun, observer, 1, sunsetDate, -18);
+  const astronomicalDarknessMinutes = eveningAstronomicalStart && morningAstronomicalEnd
+    ? Math.max(0, Math.round((new Date(morningAstronomicalEnd).getTime() - new Date(eveningAstronomicalStart).getTime()) / 60000))
+    : 0;
   return {
     morningBlueStart: crossing(Body.Sun, observer, 1, start, -6),
     sunriseAzimuth: azimuthAt(sunriseDate, observer),
@@ -116,6 +142,9 @@ export function getSolarWindow(city: City, sunrise: string, sunset: string): Sol
     eveningGoldenStart: crossing(Body.Sun, observer, -1, noon, 6),
     sunsetAzimuth: azimuthAt(sunsetDate, observer),
     eveningBlueEnd: crossing(Body.Sun, observer, -1, noon, -6),
+    eveningAstronomicalStart,
+    morningAstronomicalEnd,
+    astronomicalDarknessMinutes,
     daylightMinutes: Math.round((sunsetDate.getTime() - sunriseDate.getTime()) / 60000),
   };
 }

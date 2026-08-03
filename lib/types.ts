@@ -22,7 +22,7 @@ export interface SkyMetrics {
   pm25: number | null;
 }
 
-export type PhotographyMode = "glow" | "fog" | "sun" | "moon" | "lunar-eclipse" | "solar-eclipse";
+export type PhotographyMode = "glow" | "fog" | "sun" | "moon" | "stars" | "lunar-eclipse" | "solar-eclipse";
 
 export interface HourlyWeatherPoint {
   time: string;
@@ -36,6 +36,7 @@ export interface HourlyWeatherPoint {
   precipitationProbability: number | null;
   precipitation: number | null;
   windSpeed: number | null;
+  windGusts: number | null;
   windDirection: number | null;
   pressure: number | null;
   aerosolOpticalDepth: number | null;
@@ -69,6 +70,9 @@ export interface SolarWindow {
   eveningGoldenStart: string | null;
   sunsetAzimuth: number | null;
   eveningBlueEnd: string | null;
+  eveningAstronomicalStart: string | null;
+  morningAstronomicalEnd: string | null;
+  astronomicalDarknessMinutes: number;
   daylightMinutes: number;
 }
 
@@ -79,22 +83,66 @@ export interface EclipseForecast {
   end: string;
   obscuration: number;
   altitude: number;
+  azimuth: number;
   visible: boolean;
 }
 
-export interface AstronomySummary {
+export interface MoonGeometry {
   calculatedAt: string;
-  moon: {
-    phaseAngle: number;
-    phaseName: string;
-    illumination: number;
-    altitude: number;
-    azimuth: number;
-    rise: string | null;
-    set: string | null;
-  };
+  phaseAngle: number;
+  phaseName: string;
+  illumination: number;
+  altitude: number;
+  azimuth: number;
+  rise: string | null;
+  set: string | null;
+}
+
+export interface AstronomySummary {
   nextLunarEclipse: EclipseForecast;
   nextSolarEclipse: EclipseForecast;
+}
+
+export interface NightWeatherMetrics {
+  temperature: number | null;
+  dewPoint: number | null;
+  humidity: number | null;
+  lowCloud: number | null;
+  midCloud: number | null;
+  highCloud: number | null;
+  visibility: number | null;
+  precipitationProbability: number | null;
+  precipitation: number | null;
+  windSpeed: number | null;
+  windGusts: number | null;
+  windDirection: number | null;
+}
+
+export interface MoonForecast extends MoonGeometry {
+  time: string;
+  probability: number;
+  confidence: number;
+  level: "极佳" | "值得期待" | "可以等等" | "机会较低";
+  summary: string;
+  weather: NightWeatherMetrics;
+  contributions: ScoreResult["contributions"];
+  modelScores: { model: string; probability: number }[];
+}
+
+export interface NightForecast {
+  time: string;
+  astronomicalDusk: string | null;
+  astronomicalDawn: string | null;
+  darknessMinutes: number;
+  sunAltitude: number;
+  probability: number;
+  confidence: number;
+  level: "极佳" | "值得期待" | "可以等等" | "机会较低";
+  summary: string;
+  moon: MoonGeometry;
+  weather: NightWeatherMetrics;
+  contributions: ScoreResult["contributions"];
+  modelScores: { model: string; probability: number }[];
 }
 
 export interface ScoreResult {
@@ -131,6 +179,8 @@ export interface DayForecast {
   dusk: EventForecast;
   fog: FogForecast;
   solar: SolarWindow;
+  moon: MoonForecast;
+  night: NightForecast;
 }
 
 export interface ForecastResponse {

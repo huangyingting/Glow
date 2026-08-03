@@ -1,7 +1,7 @@
 import { averageMetrics, confidenceFromScores, probabilityLevel, scoreGlow } from "@/lib/glow-model";
-import { getAstronomy, getSolarWindow } from "@/lib/astronomy";
-import { fogLevel, fogSummary, scoreFog } from "@/lib/photography-models";
-import type { City, DayForecast, EventForecast, EventKind, FogForecast, FogMetrics, ForecastResponse, HourlyWeatherPoint, SkyMetrics } from "@/lib/types";
+import { getAstronomy, getMoonGeometry, getMoonPosition, getSolarAltitude, getSolarWindow } from "@/lib/astronomy";
+import { fogLevel, fogSummary, scoreFog, scoreMoon, scoreNightscape } from "@/lib/photography-models";
+import type { City, DayForecast, EventForecast, EventKind, FogForecast, FogMetrics, ForecastResponse, HourlyWeatherPoint, MoonForecast, NightForecast, NightWeatherMetrics, ScoreResult, SkyMetrics, SolarWindow } from "@/lib/types";
 
 interface OpenMeteoForecast {
   elevation?: number;
@@ -38,6 +38,7 @@ const HOURLY_FIELDS = [
   "precipitation_probability",
   "precipitation",
   "wind_speed_10m",
+  "wind_gusts_10m",
   "wind_direction_10m",
   "surface_pressure",
 ].join(",");
@@ -130,6 +131,170 @@ function averageFogMetrics(items: FogMetrics[]): FogMetrics {
   };
 }
 
+function nightMetricsAt(model: OpenMeteoForecast, time: string): NightWeatherMetrics {
+  const index = model.hourly.time.indexOf(time);
+  return {
+    temperature: asNumber(model.hourly.temperature_2m?.[index]),
+    dewPoint: asNumber(model.hourly.dew_point_2m?.[index]),
+    humidity: asNumber(model.hourly.relative_humidity_2m?.[index]),
+    lowCloud: asNumber(model.hourly.cloud_cover_low?.[index]),
+    midCloud: asNumber(model.hourly.cloud_cover_mid?.[index]),
+    highCloud: asNumber(model.hourly.cloud_cover_high?.[index]),
+    visibility: asNumber(model.hourly.visibility?.[index]),
+    precipitationProbability: asNumber(model.hourly.precipitation_probability?.[index]),
+    precipitation: asNumber(model.hourly.precipitation?.[index]),
+    windSpeed: asNumber(model.hourly.wind_speed_10m?.[index]),
+    windGusts: asNumber(model.hourly.wind_gusts_10m?.[index]),
+    windDirection: asNumber(model.hourly.wind_direction_10m?.[index]),
+  };
+}
+
+function averageNightMetrics(items: NightWeatherMetrics[]): NightWeatherMetrics {
+  const value = (key: Exclude<keyof NightWeatherMetrics, "windDirection">) => average(items.map((item) => item[key]));
+  return {
+    temperature: value("temperature"),
+    dewPoint: value("dewPoint"),
+    humidity: value("humidity"),
+    lowCloud: value("lowCloud"),
+    midCloud: value("midCloud"),
+    highCloud: value("highCloud"),
+    visibility: value("visibility"),
+    precipitationProbability: value("precipitationProbability"),
+    precipitation: value("precipitation"),
+    windSpeed: value("windSpeed"),
+    windGusts: value("windGusts"),
+    windDirection: circularAverage(items.map((item) => item.windDirection)),
+  };
+}
+
+function forecastInstant(time: string) {
+  return new Date(`${time}:00+08:00`);
+}
+
+function nightCandidateTimes(reference: OpenMeteoForecast, sunset: string, nextSunrise?: string) {
+  const start = forecastInstant(sunset).getTime();
+  const fallbackEnd = start + 14 * 60 * 60 * 1000;
+  const end = nextSunrise ? forecastInstant(nextSunrise).getTime() : fallbackEnd;
+  const candidates = reference.hourly.time.filter((time) => {
+    const instant = forecastInstant(time).getTime();
+    return instant >= start && instant <= end;
+  });
+  if (candidates.length) return candidates;
+  return reference.hourly.time.filter((time) => time.startsWith(sunset.slice(0, 10))).slice(-1);
+}
+
+interface ScoredCandidate {
+  time: string;
+  byModel: { config: ModelConfig; metrics: NightWeatherMetrics; score: ScoreResult }[];
+  metrics: NightWeatherMetrics;
+  combined: ScoreResult;
+  probability: number;
+  moonAltitude?: number;
+}
+
+function strongest(candidates: ScoredCandidate[]) {
+  return candidates.reduce((current, item) => item.probability > current.probability ? item : current, candidates[0]);
+}
+
+function buildMoonForecast(
+  city: City,
+  date: string,
+  leadDays: number,
+  times: string[],
+  available: { config: ModelConfig; data: OpenMeteoForecast }[],
+): MoonForecast {
+  const candidates = times.map((time): ScoredCandidate => {
+    const position = getMoonPosition(city, forecastInstant(time));
+    const byModel = available.map(({ config, data }) => {
+      const metrics = nightMetricsAt(data, time);
+      return { config, metrics, score: scoreMoon(metrics, position) };
+    });
+    const metrics = averageNightMetrics(byModel.map((item) => item.metrics));
+    return {
+      time,
+      byModel,
+      metrics,
+      combined: scoreMoon(metrics, position),
+      probability: Math.round(byModel.reduce((sum, item) => sum + item.score.probability, 0) / byModel.length),
+      moonAltitude: position.altitude,
+    };
+  });
+  const visibleCandidates = candidates.filter((candidate) => (candidate.moonAltitude ?? -90) > 0);
+  const best = strongest(visibleCandidates.length ? visibleCandidates : candidates);
+  const geometry = getMoonGeometry(city, forecastInstant(best.time), date);
+  const summary = geometry.altitude < 0
+    ? "天气预报时效内月面仍在地平线下；月升后的云风条件暂无数据"
+    : best.probability >= 76
+      ? "月面高度与天气配合，适合安排长焦或带景拍摄"
+      : best.probability >= 50
+        ? "存在可拍窗口，云量和阵风仍需临场复核"
+        : "云层、降水或月面高度暂不利于稳定拍摄";
+  return {
+    ...geometry,
+    time: best.time,
+    probability: best.probability,
+    confidence: confidenceFromScores(best.byModel.map((item) => item.score), leadDays),
+    level: probabilityLevel(best.probability),
+    summary,
+    weather: best.metrics,
+    contributions: best.combined.contributions,
+    modelScores: best.byModel.map(({ config, score }) => ({ model: config.name, probability: score.probability })),
+  };
+}
+
+function buildNightForecast(
+  city: City,
+  date: string,
+  leadDays: number,
+  times: string[],
+  solar: SolarWindow,
+  available: { config: ModelConfig; data: OpenMeteoForecast }[],
+): NightForecast {
+  const candidates = times.map((time): ScoredCandidate => {
+    const at = forecastInstant(time);
+    const moon = getMoonPosition(city, at);
+    const sunAltitude = getSolarAltitude(city, at);
+    const byModel = available.map(({ config, data }) => {
+      const metrics = nightMetricsAt(data, time);
+      return { config, metrics, score: scoreNightscape(metrics, { sunAltitude, moonAltitude: moon.altitude, moonIllumination: moon.illumination }) };
+    });
+    const metrics = averageNightMetrics(byModel.map((item) => item.metrics));
+    return {
+      time,
+      byModel,
+      metrics,
+      combined: scoreNightscape(metrics, { sunAltitude, moonAltitude: moon.altitude, moonIllumination: moon.illumination }),
+      probability: Math.round(byModel.reduce((sum, item) => sum + item.score.probability, 0) / byModel.length),
+    };
+  });
+  const best = strongest(candidates);
+  const at = forecastInstant(best.time);
+  const moon = getMoonGeometry(city, at, date);
+  const sunAltitude = getSolarAltitude(city, at);
+  const summary = solar.astronomicalDarknessMinutes === 0
+    ? "该日期没有完整天文黑夜，深空与银河背景会受到暮光影响"
+    : best.probability >= 76
+      ? "黑夜、云量和月光条件配合，适合进入踩点与构图阶段"
+      : best.probability >= 50
+        ? "有可用黑夜窗口，需重点复核月光、结露与阵风"
+        : "云量、月光、暮光或地面湿风风险暂不理想";
+  return {
+    time: best.time,
+    astronomicalDusk: solar.eveningAstronomicalStart,
+    astronomicalDawn: solar.morningAstronomicalEnd,
+    darknessMinutes: solar.astronomicalDarknessMinutes,
+    sunAltitude,
+    probability: best.probability,
+    confidence: confidenceFromScores(best.byModel.map((item) => item.score), leadDays),
+    level: probabilityLevel(best.probability),
+    summary,
+    moon,
+    weather: best.metrics,
+    contributions: best.combined.contributions,
+    modelScores: best.byModel.map(({ config, score }) => ({ model: config.name, probability: score.probability })),
+  };
+}
+
 function buildFogForecast(date: string, leadDays: number, available: { config: ModelConfig; data: OpenMeteoForecast }[]): FogForecast {
   const times = available[0].data.hourly.time.filter((time) => time.startsWith(date));
   const candidates = times.map((time) => {
@@ -173,6 +338,7 @@ function buildHourly(available: { config: ModelConfig; data: OpenMeteoForecast }
       precipitationProbability: average(modelValues("precipitation_probability")),
       precipitation: average(modelValues("precipitation")),
       windSpeed: average(modelValues("wind_speed_10m")),
+      windGusts: average(modelValues("wind_gusts_10m")),
       windDirection: circularAverage(modelValues("wind_direction_10m")),
       pressure: average(modelValues("surface_pressure")),
       aerosolOpticalDepth: airIndex >= 0 ? asNumber(air?.hourly.aerosol_optical_depth?.[airIndex]) : null,
@@ -281,6 +447,8 @@ export async function getForecast(city: City): Promise<ForecastResponse> {
     const sunrise = reference.daily.sunrise[index];
     const sunset = reference.daily.sunset[index];
     const formatted = formatDay(date);
+    const solar = getSolarWindow(city, sunrise, sunset);
+    const candidateTimes = nightCandidateTimes(reference, sunset, reference.daily.sunrise[index + 1]);
     return {
       date,
       ...formatted,
@@ -289,7 +457,9 @@ export async function getForecast(city: City): Promise<ForecastResponse> {
       dawn: buildEvent("dawn", sunrise, index, available, airResult),
       dusk: buildEvent("dusk", sunset, index, available, airResult),
       fog: buildFogForecast(date, index, available),
-      solar: getSolarWindow(city, sunrise, sunset),
+      solar,
+      moon: buildMoonForecast(city, date, index, candidateTimes, available),
+      night: buildNightForecast(city, date, index, candidateTimes, solar, available),
     };
   });
 

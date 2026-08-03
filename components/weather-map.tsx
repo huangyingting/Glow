@@ -12,6 +12,7 @@ interface WeatherMapProps {
   sunriseAzimuth: number | null;
   sunsetAzimuth: number | null;
   moonAzimuth: number | null;
+  eventAzimuth: number | null;
   onPick: (latitude: number, longitude: number) => void;
 }
 
@@ -41,12 +42,13 @@ function destination(longitude: number, latitude: number, bearing: number, dista
   return [endLon * 180 / Math.PI, endLat * 180 / Math.PI];
 }
 
-function directionData(location: City, sunrise: number | null, sunset: number | null, moon: number | null) {
+function directionData(location: City, sunrise: number | null, sunset: number | null, moon: number | null, event: number | null) {
   const origin = [location.longitude, location.latitude];
   const features = [
     sunrise === null ? null : { type: "Feature" as const, properties: { kind: "sunrise" }, geometry: { type: "LineString" as const, coordinates: [origin, destination(location.longitude, location.latitude, sunrise)] } },
     sunset === null ? null : { type: "Feature" as const, properties: { kind: "sunset" }, geometry: { type: "LineString" as const, coordinates: [origin, destination(location.longitude, location.latitude, sunset)] } },
     moon === null ? null : { type: "Feature" as const, properties: { kind: "moon" }, geometry: { type: "LineString" as const, coordinates: [origin, destination(location.longitude, location.latitude, moon)] } },
+    event === null ? null : { type: "Feature" as const, properties: { kind: "event" }, geometry: { type: "LineString" as const, coordinates: [origin, destination(location.longitude, location.latitude, event)] } },
   ].filter((item) => item !== null);
   return { type: "FeatureCollection" as const, features };
 }
@@ -62,14 +64,14 @@ function pointData(location: City, score: number, mode: PhotographyMode) {
   };
 }
 
-export default function WeatherMap({ location, mode, score, sunriseAzimuth, sunsetAzimuth, moonAzimuth, onPick }: WeatherMapProps) {
+export default function WeatherMap({ location, mode, score, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth, onPick }: WeatherMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const directionOverlayRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const pickRef = useRef(onPick);
-  const initialRef = useRef({ location, mode, score, sunriseAzimuth, sunsetAzimuth, moonAzimuth });
-  const directionRef = useRef({ location, sunriseAzimuth, sunsetAzimuth, moonAzimuth });
+  const initialRef = useRef({ location, mode, score, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth });
+  const directionRef = useRef({ location, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth });
   const [ready, setReady] = useState(false);
   const [warning, setWarning] = useState(false);
 
@@ -80,7 +82,7 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
     if (!overlay) return;
     const current = directionRef.current;
     const origin = map.project([current.location.longitude, current.location.latitude]);
-    const values = { sunrise: current.sunriseAzimuth, sunset: current.sunsetAzimuth, moon: current.moonAzimuth };
+    const values = { sunrise: current.sunriseAzimuth, sunset: current.sunsetAzimuth, moon: current.moonAzimuth, event: current.eventAzimuth };
     Object.entries(values).forEach(([kind, bearing]) => {
       const line = overlay.querySelector<HTMLElement>(`[data-kind="${kind}"]`);
       if (!line || bearing === null) return;
@@ -151,13 +153,13 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
           "circle-blur": .55,
         },
       });
-      map.addSource("photo-directions", { type: "geojson", data: directionData(initial.location, initial.sunriseAzimuth, initial.sunsetAzimuth, initial.moonAzimuth) });
+      map.addSource("photo-directions", { type: "geojson", data: directionData(initial.location, initial.sunriseAzimuth, initial.sunsetAzimuth, initial.moonAzimuth, initial.eventAzimuth) });
       map.addLayer({
         id: "photo-directions",
         type: "line",
         source: "photo-directions",
         paint: {
-          "line-color": ["match", ["get", "kind"], "sunrise", "#f4b55f", "sunset", "#ed755d", "#8171b6"],
+          "line-color": ["match", ["get", "kind"], "sunrise", "#f4b55f", "sunset", "#ed755d", "moon", "#8171b6", "#d97735"],
           "line-width": 2,
           "line-opacity": .86,
           "line-dasharray": [2, 2],
@@ -175,7 +177,7 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
   }, [positionDirectionOverlay]);
 
   useEffect(() => {
-    directionRef.current = { location, sunriseAzimuth, sunsetAzimuth, moonAzimuth };
+    directionRef.current = { location, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth };
     const map = mapRef.current;
     const marker = markerRef.current;
     if (!map || !marker) return;
@@ -187,11 +189,11 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
       map.once("moveend", () => containerRef.current?.classList.remove("map-moving"));
     }
     (map.getSource("forecast-point") as GeoJSONSource | undefined)?.setData(pointData(location, score, mode));
-    (map.getSource("photo-directions") as GeoJSONSource | undefined)?.setData(directionData(location, sunriseAzimuth, sunsetAzimuth, moonAzimuth));
+    (map.getSource("photo-directions") as GeoJSONSource | undefined)?.setData(directionData(location, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth));
     marker.getElement().style.setProperty("--pin-score", `${score}%`);
     marker.getElement().dataset.mode = mode;
     window.requestAnimationFrame(() => positionDirectionOverlay(map));
-  }, [location, mode, moonAzimuth, positionDirectionOverlay, score, sunriseAzimuth, sunsetAzimuth]);
+  }, [eventAzimuth, location, mode, moonAzimuth, positionDirectionOverlay, score, sunriseAzimuth, sunsetAzimuth]);
 
   return (
     <div className="weather-map" ref={containerRef} data-map-ready={ready ? "true" : "false"} aria-label="可点击和拖动定位点的中国天气地图">
@@ -199,6 +201,7 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
         {sunriseAzimuth !== null && <i data-kind="sunrise" />}
         {sunsetAzimuth !== null && <i data-kind="sunset" />}
         {moonAzimuth !== null && <i data-kind="moon" />}
+        {eventAzimuth !== null && <i data-kind="event" />}
       </div>
       {!ready && <div className="map-loading"><span /><p>正在绘制地理底图</p></div>}
       {warning && <div className="map-warning">部分底图瓦片暂不可用，定位与预测仍可使用</div>}

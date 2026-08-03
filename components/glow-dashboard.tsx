@@ -7,9 +7,9 @@ import {
   Check,
   ChevronDown,
   CircleGauge,
+  Clock3,
   CloudFog,
   CloudRain,
-  CloudSun,
   Crosshair,
   Database,
   Droplets,
@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Star,
   SunMedium,
   Sunrise,
   Sunset,
@@ -66,9 +67,10 @@ interface ModeDefinition {
 
 const MODES: ModeDefinition[] = [
   { id: "glow", label: "朝霞 / 晚霞", shortLabel: "霞光", description: "分层云与散射", icon: Sparkles },
-  { id: "fog", label: "平流雾 / 雾景", shortLabel: "雾景", description: "露点与低层输送", icon: CloudFog },
+  { id: "fog", label: "雾景潜势", shortLabel: "雾景", description: "露点与低层输送", icon: CloudFog },
   { id: "sun", label: "日出 / 日落", shortLabel: "太阳", description: "方位与黄金时段", icon: SunMedium },
   { id: "moon", label: "月相 / 月升", shortLabel: "月亮", description: "月相与地平坐标", icon: MoonStar },
+  { id: "stars", label: "星空 / 夜景", shortLabel: "星空", description: "黑夜、月光与脚架风险", icon: Star },
   { id: "lunar-eclipse", label: "月食", shortLabel: "月食", description: "本地可见食象", icon: Orbit },
   { id: "solar-eclipse", label: "日食", shortLabel: "日食", description: "本地遮掩与高度", icon: Eclipse },
 ];
@@ -126,10 +128,8 @@ function modeScore(mode: PhotographyMode, day: DayForecast, data: ForecastRespon
   if (mode === "glow") return day[glowKind].probability;
   if (mode === "fog") return day.fog.probability;
   if (mode === "sun") return Math.max(day.dawn.probability, day.dusk.probability);
-  if (mode === "moon") {
-    const clouds = [day.dusk.metrics.lowCloud, day.dusk.metrics.midCloud, day.dusk.metrics.highCloud].filter((value): value is number => value !== null);
-    return Math.round(100 - (clouds.length ? clouds.reduce((sum, value) => sum + value, 0) / clouds.length : 50));
-  }
+  if (mode === "moon") return day.moon.probability;
+  if (mode === "stars") return day.night.probability;
   return Math.round((mode === "lunar-eclipse" ? data.astronomy.nextLunarEclipse.obscuration : data.astronomy.nextSolarEclipse.obscuration) * 100);
 }
 
@@ -431,28 +431,71 @@ function SunPanel({ day, hourly }: { day: DayForecast; hourly: HourlyWeatherPoin
   );
 }
 
-function MoonPanel({ data, day, hourly }: { data: ForecastResponse; day: DayForecast; hourly: HourlyWeatherPoint[] }) {
-  const moon = data.astronomy.moon;
+function MoonPanel({ day, hourly }: { day: DayForecast; hourly: HourlyWeatherPoint[] }) {
+  const moon = day.moon;
   return (
     <>
       <section className="moon-readout">
         <div className="moon-disc" style={{ "--moon-light": `${moon.illumination}%` } as React.CSSProperties}><i /></div>
-        <div><span className="scene-eyebrow">CURRENT MOON</span><h3>{moon.phaseName}</h3><strong>{moon.illumination}% <small>照明</small></strong><p>{moon.altitude > 0 ? `当前位于地平线上 ${moon.altitude.toFixed(1)}°` : `当前位于地平线下 ${Math.abs(moon.altitude).toFixed(1)}°`}</p></div>
+        <div><span className="scene-eyebrow">{day.shortDate} · BEST MOON WINDOW</span><h3>{moon.phaseName}</h3><strong>{moon.probability}% <small>拍摄机会</small></strong><p>{localTime(moon.time)} · {moon.summary}</p></div>
       </section>
       <div className="quick-metrics four">
-        <span><ArrowDown />月升<strong>{localTime(moon.rise)}</strong></span>
-        <span><ArrowDown className="up-icon" />月落<strong>{localTime(moon.set)}</strong></span>
+        <span><MoonStar />照明<strong>{moon.illumination}%</strong></span>
+        <span><ArrowDown />月升 / 月落<strong>{localTime(moon.rise)} / {localTime(moon.set)}</strong></span>
         <span><Navigation />方位<strong>{compass(moon.azimuth)}</strong></span>
         <span><Telescope />高度<strong>{moon.altitude.toFixed(1)}°</strong></span>
       </div>
-      <section className="night-condition compact-section"><header><span><CloudSun size={15} /> 当晚天气背景</span><small>{day.shortDate}</small></header><p>晚霞时段云量可作为入夜后的短期参考；远离该时刻后应以逐小时气象图为准。</p></section>
       <Meteogram hourly={hourly} />
+      <FactorCompact items={moon.contributions} />
+      <ModelAgreement scores={moon.modelScores} />
     </>
+  );
+}
+
+function NightPanel({ day, hourly }: { day: DayForecast; hourly: HourlyWeatherPoint[] }) {
+  const night = day.night;
+  const moonText = night.moon.altitude > 0
+    ? `${night.moon.illumination}% · ${night.moon.altitude.toFixed(0)}°`
+    : `${night.moon.illumination}% · 地平线下`;
+  return (
+    <>
+      <div className="primary-readout night-readout">
+        <ScoreRing value={night.probability} label={night.level} confidence={night.confidence} />
+        <div><span className="readout-time">{localTime(night.time)}</span><small>当晚最佳星空窗口</small><p>{night.summary}</p></div>
+      </div>
+      <div className="quick-metrics four">
+        <span><Sunset />天文暮光结束<strong>{localTime(night.astronomicalDusk)}</strong></span>
+        <span><Sunrise />天文晨光开始<strong>{localTime(night.astronomicalDawn)}</strong></span>
+        <span><Clock3 />完整黑夜<strong>{Math.floor(night.darknessMinutes / 60)}h {night.darknessMinutes % 60}m</strong></span>
+        <span><MoonStar />月光背景<strong>{moonText}</strong></span>
+      </div>
+      <div className="method-alert night-limit"><AlertTriangle size={14} /><span><strong>这是气象与天文黑夜机会，不是银河构图保证</strong>光污染、银河核心方位、地形地平线和前景照明尚未进入模型；到场前仍需核对暗空图与机位遮挡。</span></div>
+      <Meteogram hourly={hourly} />
+      <FactorCompact items={night.contributions} />
+      <ModelAgreement scores={night.modelScores} />
+    </>
+  );
+}
+
+function FieldBriefing({ point, targetLabel, elevation }: { point: HourlyWeatherPoint; targetLabel: string; elevation: number | null }) {
+  const spread = point.temperature !== null && point.dewPoint !== null ? Math.max(0, point.temperature - point.dewPoint) : null;
+  return (
+    <section className="field-briefing compact-section" aria-label="拍摄时刻现场简报">
+      <header><span><Clock3 size={15} /> 拍摄时刻现场简报</span><small>{targetLabel} · {localTime(point.time)}</small></header>
+      <div>
+        <span><Thermometer /><small>气温 / 露点差</small><strong>{point.temperature?.toFixed(0) ?? "—"}° · {spread === null ? "—" : `${spread.toFixed(1)}°`}</strong></span>
+        <span><Wind /><small>持续风 / 阵风</small><strong>{point.windSpeed?.toFixed(0) ?? "—"} / {point.windGusts?.toFixed(0) ?? "—"} km/h</strong></span>
+        <span><Navigation /><small>来风方向</small><strong>{compass(point.windDirection)}</strong></span>
+        <span><CircleGauge /><small>气压 / 海拔</small><strong>{point.pressure?.toFixed(0) ?? "—"} hPa · {elevation === null ? "—" : `${Math.round(elevation)} m`}</strong></span>
+      </div>
+      <p>阵风影响长焦与脚架稳定；露点差接近 0°C 时应准备镜头加热带和防潮措施。</p>
+    </section>
   );
 }
 
 function EclipsePanel({ event, type, data }: { event: EclipseForecast; type: "lunar" | "solar"; data: ForecastResponse }) {
   const isLunar = type === "lunar";
+  const penumbral = isLunar && event.kind === "penumbral";
   return (
     <>
       <section className={`eclipse-hero ${isLunar ? "lunar" : "solar"}`}>
@@ -462,8 +505,8 @@ function EclipsePanel({ event, type, data }: { event: EclipseForecast; type: "lu
         <p>{data.location.name}定位点的下一次峰值可见事件</p>
       </section>
       <div className="eclipse-primary">
-        <ScoreRing value={Math.round(event.obscuration * 100)} label="最大遮掩" />
-        <div><small>峰值时间 · 北京时间</small><strong>{longDateTime(event.peak)}</strong><p>天体高度 {event.altitude.toFixed(1)}° · {event.visible ? "地平线上可见" : "峰值不可见"}</p></div>
+        <ScoreRing value={Math.round(event.obscuration * 100)} label={penumbral ? "无本影遮掩" : "最大遮掩"} />
+        <div><small>峰值时间 · 北京时间</small><strong>{longDateTime(event.peak)}</strong><p>高度 {event.altitude.toFixed(1)}° · 方位 {compass(event.azimuth)} · {event.visible ? "地平线上可见" : "峰值不可见"}</p></div>
       </div>
       <div className="eclipse-timeline">
         <span><i />初始<strong>{localDateTime(event.begin)}</strong></span><b /><span><i />食甚<strong>{localDateTime(event.peak)}</strong></span><b /><span><i />结束<strong>{localDateTime(event.end)}</strong></span>
@@ -486,7 +529,7 @@ function SourceDisclosure({ data }: { data: ForecastResponse }) {
   );
 }
 
-function Inspector({ data, day, mode, glowKind, setGlowKind, hourly }: { data: ForecastResponse; day: DayForecast; mode: PhotographyMode; glowKind: GlowKind; setGlowKind: (kind: GlowKind) => void; hourly: HourlyWeatherPoint[] }) {
+function Inspector({ data, day, mode, glowKind, setGlowKind, hourly, fieldPoint, fieldLabel }: { data: ForecastResponse; day: DayForecast; mode: PhotographyMode; glowKind: GlowKind; setGlowKind: (kind: GlowKind) => void; hourly: HourlyWeatherPoint[]; fieldPoint: HourlyWeatherPoint | null; fieldLabel: string }) {
   const definition = MODES.find((item) => item.id === mode) ?? MODES[0];
   const Icon = definition.icon;
   return (
@@ -499,9 +542,11 @@ function Inspector({ data, day, mode, glowKind, setGlowKind, hourly }: { data: F
         {mode === "glow" && <GlowPanel day={day} kind={glowKind} setKind={setGlowKind} hourly={hourly} />}
         {mode === "fog" && <FogPanel fog={day.fog} hourly={hourly} />}
         {mode === "sun" && <SunPanel day={day} hourly={hourly} />}
-        {mode === "moon" && <MoonPanel data={data} day={day} hourly={hourly} />}
+        {mode === "moon" && <MoonPanel day={day} hourly={hourly} />}
+        {mode === "stars" && <NightPanel day={day} hourly={hourly} />}
         {mode === "lunar-eclipse" && <EclipsePanel event={data.astronomy.nextLunarEclipse} type="lunar" data={data} />}
         {mode === "solar-eclipse" && <EclipsePanel event={data.astronomy.nextSolarEclipse} type="solar" data={data} />}
+        {fieldPoint && <FieldBriefing point={fieldPoint} targetLabel={fieldLabel} elevation={data.location.elevation} />}
         <SourceDisclosure data={data} />
         <p className="inspector-disclaimer">机会指数用于摄影计划，不替代气象灾害预警。山体、建筑和局地微气候仍需现场判断。</p>
       </div>
@@ -509,7 +554,32 @@ function Inspector({ data, day, mode, glowKind, setGlowKind, hourly }: { data: F
   );
 }
 
+function localDateKey(value: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai" }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function EclipseEventTimeline({ data, mode }: { data: ForecastResponse; mode: "lunar-eclipse" | "solar-eclipse" }) {
+  const event = mode === "lunar-eclipse" ? data.astronomy.nextLunarEclipse : data.astronomy.nextSolarEclipse;
+  const eventDay = localDateKey(event.peak);
+  const inRange = data.days.some((day) => day.date === eventDay);
+  const daysAway = Math.max(0, Math.ceil((new Date(event.peak).getTime() - new Date(data.generatedAt).getTime()) / 86_400_000));
+  const magnitudeLabel = mode === "lunar-eclipse" && event.kind === "penumbral" ? "无本影遮掩" : `最大遮掩 ${Math.round(event.obscuration * 100)}%`;
+  return (
+    <div className="map-timeline eclipse-event-band" aria-label="下一次本地可见食象">
+      <div className="timeline-now"><span>EVENT</span><strong>{mode === "lunar-eclipse" ? "月食窗口" : "日食窗口"}</strong></div>
+      <div className="event-band-copy">
+        <span>{KIND_LABEL[event.kind]} · {magnitudeLabel}</span>
+        <strong>{longDateTime(event.peak)}</strong>
+        <small>{inRange ? "已进入七天天气窗口，可结合逐小时云量临近复核" : `距事件约 ${daysAway} 天 · 尚无可信天气预报，当前仅显示天文几何`}</small>
+      </div>
+    </div>
+  );
+}
+
 function DayTimeline({ data, selected, mode, glowKind, onSelect }: { data: ForecastResponse; selected: number; mode: PhotographyMode; glowKind: GlowKind; onSelect: (index: number) => void }) {
+  if (mode === "lunar-eclipse" || mode === "solar-eclipse") return <EclipseEventTimeline data={data} mode={mode} />;
   return (
     <div className="map-timeline" role="tablist" aria-label="七天摄影窗口">
       <div className="timeline-now"><span>7 DAY</span><strong>机会窗口</strong></div>
@@ -521,6 +591,32 @@ function DayTimeline({ data, selected, mode, glowKind, onSelect }: { data: Forec
       </div>
     </div>
   );
+}
+
+function forecastTime(value: string) {
+  return new Date(value.endsWith("Z") ? value : `${value}:00+08:00`).getTime();
+}
+
+function fieldTarget(mode: PhotographyMode, day: DayForecast, data: ForecastResponse, glowKind: GlowKind) {
+  if (mode === "glow") return { time: day[glowKind].time, label: glowKind === "dawn" ? "朝霞窗口" : "晚霞窗口" };
+  if (mode === "fog") return { time: day.fog.time, label: "雾景窗口" };
+  if (mode === "sun") {
+    const kind = day.dawn.probability >= day.dusk.probability ? "dawn" : "dusk";
+    return { time: day[kind].time, label: kind === "dawn" ? "日出窗口" : "日落窗口" };
+  }
+  if (mode === "moon") return { time: day.moon.time, label: "月面窗口" };
+  if (mode === "stars") return { time: day.night.time, label: "星空窗口" };
+  const event = mode === "lunar-eclipse" ? data.astronomy.nextLunarEclipse : data.astronomy.nextSolarEclipse;
+  return { time: event.peak, label: mode === "lunar-eclipse" ? "月食食甚" : "日食食甚" };
+}
+
+function closestHour(hourly: HourlyWeatherPoint[], target: string) {
+  const targetTime = forecastTime(target);
+  const closest = hourly.reduce<HourlyWeatherPoint | null>((current, point) => {
+    if (!current) return point;
+    return Math.abs(forecastTime(point.time) - targetTime) < Math.abs(forecastTime(current.time) - targetTime) ? point : current;
+  }, null);
+  return closest && Math.abs(forecastTime(closest.time) - targetTime) <= 90 * 60 * 1000 ? closest : null;
 }
 
 export function GlowDashboard() {
@@ -558,7 +654,14 @@ export function GlowDashboard() {
 
   const current = data?.location ?? CITIES[0];
   const day = data?.days[selectedIndex] ?? null;
-  const hourly = useMemo(() => data && day ? data.hourly.filter((point) => point.time.startsWith(day.date)) : [], [data, day]);
+  const dailyHourly = useMemo(() => data && day ? data.hourly.filter((point) => point.time.startsWith(day.date)) : [], [data, day]);
+  const hourly = useMemo(() => {
+    if (!data || !day || (mode !== "moon" && mode !== "stars")) return dailyHourly;
+    const start = data.hourly.findIndex((point) => forecastTime(point.time) >= forecastTime(day.sunset));
+    return start >= 0 ? data.hourly.slice(start, start + 14) : dailyHourly;
+  }, [dailyHourly, data, day, mode]);
+  const target = data && day ? fieldTarget(mode, day, data, glowKind) : null;
+  const fieldPoint = useMemo(() => data && target ? closestHour(data.hourly, target.time) : null, [data, target]);
   const score = data && day ? modeScore(mode, day, data, glowKind) : 0;
   const pickCoordinate = useCallback((latitude: number, longitude: number) => {
     void loadForecast(`/api/forecast?lat=${latitude.toFixed(5)}&lon=${longitude.toFixed(5)}&name=${encodeURIComponent("地图落点")}`);
@@ -573,7 +676,11 @@ export function GlowDashboard() {
   };
 
   const showSunDirections = mode === "glow" || mode === "sun";
-  const showMoonDirection = mode === "moon" || mode === "lunar-eclipse";
+  const moonAzimuth = mode === "moon" ? day?.moon.azimuth ?? null
+    : mode === "stars" ? day?.night.moon.azimuth ?? null
+      : mode === "lunar-eclipse" ? data?.astronomy.nextLunarEclipse.azimuth ?? null
+        : null;
+  const eventAzimuth = mode === "solar-eclipse" ? data?.astronomy.nextSolarEclipse.azimuth ?? null : null;
   return (
     <main className="photo-workspace">
       <header className="workspace-header">
@@ -594,32 +701,34 @@ export function GlowDashboard() {
             score={score}
             sunriseAzimuth={showSunDirections ? day?.solar.sunriseAzimuth ?? null : null}
             sunsetAzimuth={showSunDirections ? day?.solar.sunsetAzimuth ?? null : null}
-            moonAzimuth={showMoonDirection ? data?.astronomy.moon.azimuth ?? null : null}
+            moonAzimuth={moonAzimuth}
+            eventAzimuth={eventAzimuth}
             onPick={pickCoordinate}
           />
           <div className="map-instruction"><MapPin size={15} /><span><strong>单击地图放置观测点</strong><small>或拖动标记精确调整</small></span></div>
-          {(showSunDirections || showMoonDirection) && (
+          {(showSunDirections || moonAzimuth !== null || eventAzimuth !== null) && (
             <div className="map-direction-legend">
               {showSunDirections && <><span className="sunrise-line">日出 {compass(day?.solar.sunriseAzimuth ?? null)}</span><span className="sunset-line">日落 {compass(day?.solar.sunsetAzimuth ?? null)}</span></>}
-              {showMoonDirection && <span className="moon-line">月亮 {compass(data?.astronomy.moon.azimuth ?? null)}</span>}
+              {moonAzimuth !== null && <span className="moon-line">{mode === "lunar-eclipse" ? "月食" : mode === "stars" ? "窗口月亮" : "月亮"} {compass(moonAzimuth)}</span>}
+              {eventAzimuth !== null && <span className="event-line">日食 {compass(eventAzimuth)}</span>}
             </div>
           )}
           <div className="coordinate-hud">
             <span><i /> {current.name}</span><strong>{current.latitude.toFixed(4)}°N</strong><strong>{current.longitude.toFixed(4)}°E</strong><small>WGS 84</small>
           </div>
-          {day && data && (
+          {day && data && fieldPoint && target && (
             <div className="map-weather-strip">
-              <span><Thermometer />{hourly[12]?.temperature?.toFixed(0) ?? "—"}°<small>气温</small></span>
-              <span><Wind />{hourly[12]?.windSpeed?.toFixed(0) ?? "—"}<small>km/h</small></span>
-              <span><Eye />{day[glowKind].metrics.visibility === null ? "—" : Math.round(day[glowKind].metrics.visibility / 1000)}<small>km 能见度</small></span>
-              <span><CloudSun />{day[glowKind].metrics.lowCloud === null ? "—" : Math.round(day[glowKind].metrics.lowCloud)}%<small>低云</small></span>
+              <span><Clock3 />{localTime(fieldPoint.time)}<small>{target.label}</small></span>
+              <span><Thermometer />{fieldPoint.temperature?.toFixed(0) ?? "—"}°<small>气温 · 露点 {fieldPoint.dewPoint?.toFixed(0) ?? "—"}°</small></span>
+              <span><Wind />{fieldPoint.windSpeed?.toFixed(0) ?? "—"}<small>阵风 {fieldPoint.windGusts?.toFixed(0) ?? "—"} km/h</small></span>
+              <span><Eye />{fieldPoint.visibility === null ? "—" : Math.round(fieldPoint.visibility / 1000)}<small>km 能见度</small></span>
             </div>
           )}
           {data && <DayTimeline data={data} selected={selectedIndex} mode={mode} glowKind={glowKind} onSelect={setSelectedIndex} />}
           {status === "updating" && <div className="map-recalculating"><RefreshCw />正在为新落点重算 168 小时数据</div>}
         </section>
 
-        {data && day ? <Inspector data={data} day={day} mode={mode} glowKind={glowKind} setGlowKind={setGlowKind} hourly={hourly} /> : (
+        {data && day ? <Inspector data={data} day={day} mode={mode} glowKind={glowKind} setGlowKind={setGlowKind} hourly={hourly} fieldPoint={fieldPoint} fieldLabel={target?.label ?? "拍摄窗口"} /> : (
           <aside className="inspector inspector-loading">
             <div className="loading-heading"><span /><div><i /><b /></div></div><div className="loading-score" /><div className="loading-block" /><div className="loading-block short" />
             {status === "error" && <div className="workspace-error"><AlertTriangle /><h2>数据暂时不可用</h2><p>{error}</p><button type="button" onClick={() => void loadForecast("/api/forecast?city=beijing")}>重新连接</button></div>}
