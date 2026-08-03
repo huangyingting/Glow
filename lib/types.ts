@@ -22,6 +22,81 @@ export interface SkyMetrics {
   pm25: number | null;
 }
 
+export type PhotographyMode = "glow" | "fog" | "sun" | "moon" | "lunar-eclipse" | "solar-eclipse";
+
+export interface HourlyWeatherPoint {
+  time: string;
+  temperature: number | null;
+  dewPoint: number | null;
+  humidity: number | null;
+  lowCloud: number | null;
+  midCloud: number | null;
+  highCloud: number | null;
+  visibility: number | null;
+  precipitationProbability: number | null;
+  precipitation: number | null;
+  windSpeed: number | null;
+  windDirection: number | null;
+  pressure: number | null;
+  aerosolOpticalDepth: number | null;
+}
+
+export interface FogMetrics {
+  temperature: number | null;
+  dewPoint: number | null;
+  humidity: number | null;
+  lowCloud: number | null;
+  visibility: number | null;
+  windSpeed: number | null;
+  precipitation: number | null;
+}
+
+export interface FogForecast {
+  time: string;
+  probability: number;
+  confidence: number;
+  level: "很高" | "较高" | "一般" | "较低";
+  summary: string;
+  metrics: FogMetrics;
+  contributions: ScoreResult["contributions"];
+  modelScores: { model: string; probability: number }[];
+}
+
+export interface SolarWindow {
+  morningBlueStart: string | null;
+  sunriseAzimuth: number | null;
+  morningGoldenEnd: string | null;
+  eveningGoldenStart: string | null;
+  sunsetAzimuth: number | null;
+  eveningBlueEnd: string | null;
+  daylightMinutes: number;
+}
+
+export interface EclipseForecast {
+  kind: "penumbral" | "partial" | "annular" | "total";
+  peak: string;
+  begin: string;
+  end: string;
+  obscuration: number;
+  altitude: number;
+  visible: boolean;
+}
+
+export interface AstronomySummary {
+  calculatedAt: string;
+  moon: {
+    phaseAngle: number;
+    phaseName: string;
+    illumination: number;
+    altitude: number;
+    azimuth: number;
+    rise: string | null;
+    set: string | null;
+  };
+  nextLunarEclipse: EclipseForecast;
+  nextSolarEclipse: EclipseForecast;
+}
+
 export interface ScoreResult {
   probability: number;
   rawScore: number;
@@ -54,6 +129,8 @@ export interface DayForecast {
   sunset: string;
   dawn: EventForecast;
   dusk: EventForecast;
+  fog: FogForecast;
+  solar: SolarWindow;
 }
 
 export interface ForecastResponse {
@@ -61,6 +138,8 @@ export interface ForecastResponse {
   generatedAt: string;
   recommendedIndex: number;
   days: DayForecast[];
+  hourly: HourlyWeatherPoint[];
+  astronomy: AstronomySummary;
   sources: {
     id: string;
     name: string;

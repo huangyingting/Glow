@@ -1,64 +1,93 @@
 import { expect, test } from "@playwright/test";
 
-test("forecast API returns two sky events and rejects out-of-scope coordinates", async ({ request }) => {
+test("API returns the professional weather and local astronomy payload", async ({ request }) => {
   const response = await request.get("/api/forecast?city=beijing");
   expect(response.ok()).toBeTruthy();
   const payload = await response.json();
   expect(payload.location.name).toBe("北京");
   expect(payload.days).toHaveLength(7);
-  expect(payload.days[0].dawn.probability).toBeGreaterThanOrEqual(0);
-  expect(payload.days[0].dusk.modelScores).toHaveLength(2);
-  expect(payload.sources).toHaveLength(3);
+  expect(payload.hourly).toHaveLength(168);
+  expect(payload.days[0].fog.modelScores).toHaveLength(2);
+  expect(payload.days[0].solar.sunriseAzimuth).toBeGreaterThan(0);
+  expect(payload.astronomy.moon.illumination).toBeGreaterThanOrEqual(0);
+  expect(payload.astronomy.nextLunarEclipse.visible).toBe(true);
+  expect(payload.astronomy.nextSolarEclipse.visible).toBe(true);
   expect(payload.sources.every((source: { status: string }) => source.status === "available")).toBeTruthy();
 
-  const outside = await request.get("/api/forecast?lat=1&lon=1");
-  expect(outside.status()).toBe(400);
-
-  const coordinate = await request.get("/api/forecast?lat=31.23&lon=121.47&name=定位点");
+  expect((await request.get("/api/forecast?lat=1&lon=1")).status()).toBe(400);
+  const coordinate = await request.get("/api/forecast?lat=31.23&lon=121.47&name=测试落点");
   expect(coordinate.ok()).toBeTruthy();
   expect(coordinate.headers()["cache-control"]).toContain("private");
 });
 
-test("desktop user can change city, date and map location without runtime errors", async ({ page }) => {
+test("map click moves the observation point and recalculates all photography modes", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   page.on("pageerror", (error) => errors.push(error.message));
-
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "北京的霞光窗口" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "朝霞" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "晚霞" })).toBeVisible();
-  await expect(page.getByLabel("未来七天朝霞和晚霞概率折线图")).toBeVisible();
+  await expect(page.locator("[data-map-ready=true]")).toBeVisible();
+  await expect(page.locator(".map-pin-marker")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - document.documentElement.clientHeight)).toBeLessThanOrEqual(1);
 
-  await page.getByRole("button", { name: "当前观测地 北京" }).click();
-  await page.getByLabel("搜索中国城市").fill("上海");
-  await page.getByRole("option", { name: /上海/ }).click();
-  await expect(page.getByRole("heading", { name: "上海的霞光窗口" })).toBeVisible();
+  const map = await page.locator(".weather-map").boundingBox();
+  expect(map).not.toBeNull();
+  await page.mouse.click(map!.x + map!.width * .32, map!.y + map!.height * .45);
+  await expect(page.locator(".coordinate-hud")).toContainText("地图落点", { timeout: 30_000 });
+  await expect(page.locator(".weather-map")).not.toHaveClass(/map-moving/, { timeout: 10_000 });
+  const beforeDrag = await page.locator(".coordinate-hud").innerText();
+  const marker = await page.locator(".map-pin-marker").boundingBox();
+  expect(marker).not.toBeNull();
+  await page.mouse.move(marker!.x + marker!.width / 2, marker!.y + marker!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(marker!.x + marker!.width / 2 + 60, marker!.y + marker!.height / 2 + 25, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(() => page.locator(".coordinate-hud").innerText(), { timeout: 30_000 }).not.toBe(beforeDrag);
 
-  const tabs = page.getByRole("tab");
-  await tabs.nth(3).click();
-  await expect(tabs.nth(3)).toHaveAttribute("aria-selected", "true");
-
-  await page.getByRole("button", { name: "查看成都" }).click();
-  await expect(page.getByRole("heading", { name: "成都的霞光窗口" })).toBeVisible();
+  const modes = [
+    ["平流雾 / 雾景", "最佳雾景窗口"],
+    ["日出 / 日落", "晨间金色时段"],
+    ["月相 / 月升", "CURRENT MOON"],
+    ["月食", "NEXT LOCALLY VISIBLE EVENT"],
+    ["日食", "严禁用肉眼"],
+  ];
+  for (const [title, evidence] of modes) {
+    await page.getByTitle(title, { exact: true }).click();
+    await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+    await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
+  }
   expect(errors).toEqual([]);
 });
 
-test("mobile layout stays within the viewport and preserves primary controls", async ({ page }) => {
+test("city search, glow switch, date timeline and professional charts remain direct", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+  await expect(page.getByText("云层垂直剖面")).toBeVisible();
+  await expect(page.getByLabel("选定日期逐小时云层、温度、露点和降水图")).toBeVisible();
+
+  await page.getByLabel("搜索中国城市").fill("上海");
+  await page.getByRole("option", { name: /上海/ }).click();
+  await expect(page.locator(".coordinate-hud")).toContainText("上海");
+  await page.getByRole("tab", { name: /朝霞/ }).click();
+  await expect(page.getByRole("tab", { name: /朝霞/ })).toHaveAttribute("aria-selected", "true");
+
+  const dayTabs = page.getByRole("tablist", { name: "七天摄影窗口" }).getByRole("tab");
+  await dayTabs.nth(3).click();
+  await expect(dayTabs.nth(3)).toHaveAttribute("aria-selected", "true");
+});
+
+test("mobile keeps the map-first workflow usable without horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "北京的霞光窗口" })).toBeVisible();
-  await expect(page.getByRole("link", { name: /查看七天机会/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "打开导航" })).toBeVisible();
-  await page.getByRole("button", { name: "打开导航" }).click();
-  await expect(page.getByRole("link", { name: "数据方法" })).toBeVisible();
-
+  await expect(page.locator("[data-map-ready=true]")).toBeVisible();
+  await expect(page.getByLabel("摄影场景")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+  await expect(page.locator(".map-stage")).toHaveCSS("height", "470px");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
-  const cards = page.locator(".event-card");
-  await expect(cards).toHaveCount(2);
-  for (const card of await cards.all()) {
-    const box = await card.boundingBox();
-    expect(box?.width).toBeLessThanOrEqual(358);
-  }
+
+  await page.getByTitle("平流雾 / 雾景", { exact: true }).click();
+  await expect(page.getByText("最佳雾景窗口")).toBeVisible();
+  await page.getByTitle("日食", { exact: true }).click();
+  await expect(page.getByText("严禁用肉眼", { exact: false })).toBeVisible();
 });

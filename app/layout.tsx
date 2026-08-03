@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from "next";
+import "maplibre-gl/dist/maplibre-gl.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "霁光 · 朝晚霞机会预报",
-  description: "融合 ECMWF、CMA 与 CAMS 数据，提前发现中国城市的朝霞与晚霞窗口。",
-  keywords: ["朝霞", "晚霞", "天气预报", "摄影", "ECMWF", "CMA"],
+  title: "霁光 PRO · 风光摄影天气地图",
+  description: "在地图上放置观测点，融合专业气象与天文数据规划霞光、雾景、日月升落及食象摄影。",
+  keywords: ["风光摄影", "天气地图", "朝霞", "晚霞", "平流雾", "日出", "月食", "日食", "ECMWF", "CMA"],
 };
 
 export const viewport: Viewport = {
