@@ -136,7 +136,9 @@ function modeScore(mode: PhotographyMode, day: DayForecast, data: ForecastRespon
 function LocationSearch({ current, onSelect, onLocate }: { current: City; onSelect: (city: City) => void; onLocate: () => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) return CITIES.slice(0, 9);
@@ -144,34 +146,90 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
   }, [query]);
 
   useEffect(() => {
-    const dismiss = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false); };
+    const dismiss = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setActiveIndex(-1);
+      }
+    };
     window.addEventListener("pointerdown", dismiss);
     return () => window.removeEventListener("pointerdown", dismiss);
   }, []);
+
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
+
+  const selectCity = (city: City) => {
+    onSelect(city);
+    setOpen(false);
+    setQuery("");
+    setActiveIndex(-1);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      setOpen(false);
+      setActiveIndex(-1);
+      return;
+    }
+    if (!filtered.length) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((currentIndex) => {
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        return (currentIndex + direction + filtered.length) % filtered.length;
+      });
+      return;
+    }
+    if (event.key === "Enter" && open && activeIndex >= 0) {
+      event.preventDefault();
+      selectCity(filtered[activeIndex]);
+    }
+  };
 
   return (
     <div className="workspace-location" ref={rootRef}>
       <div className="workspace-search">
         <Search size={16} />
         <input
+          ref={inputRef}
+          role="combobox"
           aria-label="搜索中国城市"
+          aria-autocomplete="list"
+          aria-controls="city-search-results"
+          aria-expanded={open}
+          aria-activedescendant={activeIndex >= 0 ? `city-option-${filtered[activeIndex]?.id}` : undefined}
           value={query}
           onFocus={() => setOpen(true)}
-          onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+          onChange={(event) => { setQuery(event.target.value); setOpen(true); setActiveIndex(-1); }}
+          onKeyDown={handleKeyDown}
           placeholder={`${current.name} · 搜索城市或在地图落点`}
         />
-        {query ? <button type="button" aria-label="清空搜索" onClick={() => setQuery("")}><X size={14} /></button> : <span className="search-shortcut">⌘ K</span>}
+        {query ? <button type="button" aria-label="清空搜索" onClick={() => { setQuery(""); setActiveIndex(-1); inputRef.current?.focus(); }}><X size={14} /></button> : <span className="search-shortcut">⌘/Ctrl K</span>}
       </div>
       {open && (
-        <div className="workspace-results" role="listbox" aria-label="城市搜索结果">
+        <div id="city-search-results" className="workspace-results" role="listbox" aria-label="城市搜索结果">
           <div className="results-caption"><span>常用观测地</span><small>{filtered.length} 个结果</small></div>
-          {filtered.map((city) => (
+          {filtered.map((city, index) => (
             <button
               key={city.id}
+              id={`city-option-${city.id}`}
               type="button"
               role="option"
               aria-selected={current.id === city.id}
-              onClick={() => { onSelect(city); setOpen(false); setQuery(""); }}
+              data-active={activeIndex === index ? "true" : undefined}
+              onPointerEnter={() => setActiveIndex(index)}
+              onClick={() => selectCity(city)}
             >
               <MapPin size={14} />
               <span><strong>{city.name}</strong><small>{city.province} · {city.latitude.toFixed(2)}°N</small></span>
@@ -179,7 +237,7 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
             </button>
           ))}
           {!filtered.length && <p>未找到城市，可直接在地图上点击任意中国境内位置。</p>}
-          <button className="result-locate" type="button" onClick={() => { onLocate(); setOpen(false); }}><LocateFixed size={15} /> 使用当前定位</button>
+          <button className="result-locate" type="button" onClick={() => { onLocate(); setOpen(false); setActiveIndex(-1); }}><LocateFixed size={15} /> 使用当前定位</button>
         </div>
       )}
     </div>
@@ -193,14 +251,14 @@ function ModeRail({ active, onChange }: { active: PhotographyMode; onChange: (mo
       {MODES.map((mode, index) => {
         const Icon = mode.icon;
         return (
-          <button key={mode.id} type="button" aria-current={active === mode.id ? "page" : undefined} onClick={() => onChange(mode.id)} title={mode.label}>
+          <button key={mode.id} type="button" aria-label={mode.label} aria-current={active === mode.id ? "page" : undefined} onClick={() => onChange(mode.id)} title={mode.label}>
             <span className="mode-index">0{index + 1}</span><Icon size={19} /><strong>{mode.shortLabel}</strong>
-            <span className="mode-tooltip"><b>{mode.label}</b><small>{mode.description}</small></span>
+            <span className="mode-tooltip" aria-hidden="true"><b>{mode.label}</b><small>{mode.description}</small></span>
           </button>
         );
       })}
       <div className="rail-spacer" />
-      <button type="button" className="rail-data" title="三源数据在线"><Database size={18} /><i /></button>
+      <div className="rail-data" role="status" aria-label="三源数据在线" title="三源数据在线"><Database size={18} /><i /></div>
     </nav>
   );
 }
@@ -568,7 +626,7 @@ export function GlowDashboard() {
           </aside>
         )}
       </div>
-      {error && data && <div className="workspace-toast" role="alert"><AlertTriangle size={16} /><span>{error}</span><button type="button" onClick={() => setError(null)}><X size={14} /></button></div>}
+      {error && data && <div className="workspace-toast" role="alert"><AlertTriangle size={16} /><span>{error}</span><button type="button" aria-label="关闭错误提示" onClick={() => setError(null)}><X size={14} /></button></div>}
     </main>
   );
 }
