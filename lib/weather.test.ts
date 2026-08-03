@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CITIES } from "./cities";
-import { getForecast } from "./weather";
+import { getForecast, openMeteoEndpoints } from "./weather";
 
 const start = new Date("2026-08-03T00:00:00Z");
 const hourlyTime = Array.from({ length: 168 }, (_, index) => new Date(start.getTime() + index * 3_600_000).toISOString().slice(0, 16));
@@ -14,6 +14,7 @@ function forecastFixture(offset = 0) {
       time: hourlyTime,
       temperature_2m: values(20 + offset),
       dew_point_2m: values(12),
+      cloud_cover: values(45 + offset),
       cloud_cover_low: values(10 + offset),
       cloud_cover_mid: values(40),
       cloud_cover_high: values(55),
@@ -21,6 +22,10 @@ function forecastFixture(offset = 0) {
       visibility: values(30_000),
       precipitation_probability: values(5),
       precipitation: values(0),
+      rain: values(0),
+      showers: values(0),
+      weather_code: values(1),
+      direct_radiation: values(180),
       wind_speed_10m: values(9),
       wind_gusts_10m: values(16),
       wind_direction_10m: values(315),
@@ -45,6 +50,15 @@ const airFixture = {
 describe("forecast subsystem degradation", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("uses distinct licensed customer endpoints when an Open-Meteo key is configured", () => {
+    expect(openMeteoEndpoints(null)).toEqual(expect.objectContaining({ access: "open-access", forecast: "https://api.open-meteo.com/v1/forecast" }));
+    expect(openMeteoEndpoints("licensed-key")).toEqual({
+      access: "customer",
+      forecast: "https://customer-api.open-meteo.com/v1/forecast",
+      air: "https://customer-air-quality-api.open-meteo.com/v1/air-quality",
+    });
+  });
+
   it("builds the complete seven-day contract from deterministic provider data", async () => {
     const response = await getForecast(CITIES[0], {
       now: new Date("2026-08-03T00:00:00Z"),
@@ -54,6 +68,10 @@ describe("forecast subsystem degradation", () => {
     expect(response.days).toHaveLength(7);
     expect(response.hourly).toHaveLength(168);
     expect(response.days[0].dawn.modelScores).toHaveLength(2);
+    expect(response.days[0].weather.cloud.modelScores).toHaveLength(2);
+    expect(response.days[0].weather.rain.score).toBeGreaterThanOrEqual(0);
+    expect(response.hourly[0].solarAzimuth).toBeGreaterThanOrEqual(0);
+    expect(response.provenance).toEqual(expect.objectContaining({ delivery: "Open-Meteo", warningAuthority: false }));
     expect(response.sources.every((source) => source.status === "available")).toBe(true);
   });
 
@@ -66,6 +84,7 @@ describe("forecast subsystem degradation", () => {
       },
     });
     expect(response.days[0].dawn.modelScores).toHaveLength(1);
+    expect(response.days[0].weather.cloud.modelScores).toHaveLength(1);
     expect(response.sources.map((source) => source.status)).toEqual(["unavailable", "available", "unavailable"]);
     expect(response.days).toHaveLength(7);
   });

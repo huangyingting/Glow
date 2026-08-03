@@ -3,11 +3,11 @@
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, Marker, StyleSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { City, PhotographyMode } from "@/lib/types";
+import type { City, WorkspaceMode } from "@/lib/types";
 
 interface WeatherMapProps {
   location: City;
-  mode: PhotographyMode;
+  mode: WorkspaceMode;
   score: number;
   sunriseAzimuth: number | null;
   sunsetAzimuth: number | null;
@@ -53,7 +53,7 @@ function directionData(location: City, sunrise: number | null, sunset: number | 
   return { type: "FeatureCollection" as const, features };
 }
 
-function pointData(location: City, score: number, mode: PhotographyMode) {
+function pointData(location: City, score: number, mode: WorkspaceMode) {
   return {
     type: "FeatureCollection" as const,
     features: [{

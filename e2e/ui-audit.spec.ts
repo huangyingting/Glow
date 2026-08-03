@@ -144,7 +144,7 @@ for (const viewport of viewports) {
     }
     await capture(page, viewport.name, "08-day-seven");
 
-    const modes = ["雾景潜势", "日出 / 日落", "月相 / 月升", "星空 / 夜景", "月食", "日食"];
+    const modes = ["雾景潜势", "日出 / 日落", "月相 / 月升", "星空 / 夜景", "月食", "日食", "云层分析", "降雨分析", "彩虹潜势"];
     for (const [index, mode] of modes.entries()) {
       await page.getByTitle(mode, { exact: true }).click();
       await expect(page.getByRole("heading", { name: mode, exact: true })).toBeVisible();
@@ -155,7 +155,8 @@ for (const viewport of viewports) {
     const sources = page.getByText("数据与模型", { exact: true });
     await sources.click();
     await expect(page.getByText("Astronomy Engine", { exact: true })).toBeVisible();
-    await capture(page, viewport.name, "15-data-sources-open");
+    await expect(page.getByRole("link", { name: /中国气象局预警/ })).toBeVisible();
+    await capture(page, viewport.name, "18-data-sources-open");
     await sources.click();
     await expect(page.getByText("Astronomy Engine", { exact: true })).toBeHidden();
 
@@ -167,7 +168,7 @@ for (const viewport of viewports) {
     expect(map).not.toBeNull();
     await page.mouse.click(map!.x + map!.width * .38, map!.y + map!.height * .42);
     await expect.poll(() => page.locator(".coordinate-hud").innerText(), { timeout: 30_000 }).not.toBe(coordinatesBeforeMapClick);
-    await capture(page, viewport.name, "16-map-click");
+    await capture(page, viewport.name, "19-map-click");
 
     const marker = await page.locator(".map-pin-marker").boundingBox();
     expect(marker).not.toBeNull();
@@ -177,7 +178,7 @@ for (const viewport of viewports) {
     await page.mouse.move(marker!.x + marker!.width / 2 + 36, marker!.y + marker!.height / 2 + 18, { steps: 5 });
     await page.mouse.up();
     await expect.poll(() => page.locator(".coordinate-hud").innerText(), { timeout: 30_000 }).not.toBe(previousCoordinates);
-    await capture(page, viewport.name, "17-marker-drag");
+    await capture(page, viewport.name, "20-marker-drag");
 
     const canvas = await page.locator(".maplibregl-canvas").boundingBox();
     const markerBeforePan = await page.locator(".map-pin-marker").boundingBox();
@@ -188,20 +189,20 @@ for (const viewport of viewports) {
     await page.mouse.move(canvas!.x + canvas!.width * .62, canvas!.y + canvas!.height * .35, { steps: 6 });
     await page.mouse.up();
     await expect.poll(async () => (await page.locator(".map-pin-marker").boundingBox())?.x).not.toBe(markerBeforePan!.x);
-    await capture(page, viewport.name, "18-map-pan");
+    await capture(page, viewport.name, "21-map-pan");
 
     const zoomIn = page.getByRole("button", { name: "Zoom in" });
     const zoomOut = page.getByRole("button", { name: "Zoom out" });
     await zoomIn.click();
     await page.waitForTimeout(350);
-    await capture(page, viewport.name, "19-map-zoom-in");
+    await capture(page, viewport.name, "22-map-zoom-in");
     await zoomOut.click();
     await page.waitForTimeout(350);
 
     const attribution = page.locator(".maplibregl-ctrl-attrib-button");
     if (await attribution.isVisible()) {
       await attribution.click();
-      await capture(page, viewport.name, "20-attribution-open");
+      await capture(page, viewport.name, "23-attribution-open");
       await attribution.click();
     }
 

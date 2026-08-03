@@ -1,7 +1,8 @@
 import { averageMetrics, confidenceFromScores, probabilityLevel, scoreGlow } from "@/lib/glow-model";
-import { getAstronomy, getMoonGeometry, getMoonPosition, getSolarAltitude, getSolarWindow } from "@/lib/astronomy";
+import { getAstronomy, getMoonGeometry, getMoonPosition, getSolarAltitude, getSolarPosition, getSolarWindow } from "@/lib/astronomy";
 import { fogLevel, fogSummary, scoreFog, scoreMoon, scoreNightscape } from "@/lib/photography-models";
-import type { City, DayForecast, EventForecast, EventKind, FogForecast, FogMetrics, ForecastResponse, HourlyWeatherPoint, MoonForecast, NightForecast, NightWeatherMetrics, ScoreResult, SkyMetrics, SolarWindow } from "@/lib/types";
+import { buildWeatherAnalysis, type WeatherHourCandidate } from "@/lib/weather-analysis";
+import type { City, DayForecast, EventForecast, EventKind, FogForecast, FogMetrics, ForecastResponse, HourlyWeatherPoint, MoonForecast, NightForecast, NightWeatherMetrics, ScoreResult, SkyMetrics, SolarWindow, WeatherAnalysisMetrics } from "@/lib/types";
 
 interface OpenMeteoForecast {
   elevation?: number;
@@ -27,13 +28,28 @@ interface ForecastOptions {
 }
 
 const MODELS: ModelConfig[] = [
-  { id: "ecmwf_ifs025", name: "ECMWF IFS", role: "全球中期预报基准，负责大尺度云系" },
-  { id: "cma_grapes_global", name: "CMA GRAPES", role: "中国气象局模式，补充中国区域判断" },
+  { id: "ecmwf_ifs025", name: "ECMWF IFS", role: "ECMWF 0.25° 开放模式，负责全球大尺度云雨结构" },
+  { id: "cma_grapes_global", name: "CMA GRAPES", role: "中国气象局 15 km 全球模式，提供独立区域判断" },
 ];
 
-const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
-const AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality";
-const HOURLY_FIELDS = [
+const OPEN_METEO_API_KEY = process.env.OPEN_METEO_API_KEY?.trim() || null;
+export function openMeteoEndpoints(apiKey: string | null) {
+  return apiKey
+    ? {
+        forecast: "https://customer-api.open-meteo.com/v1/forecast",
+        air: "https://customer-air-quality-api.open-meteo.com/v1/air-quality",
+        access: "customer" as const,
+      }
+    : {
+        forecast: "https://api.open-meteo.com/v1/forecast",
+        air: "https://air-quality-api.open-meteo.com/v1/air-quality",
+        access: "open-access" as const,
+      };
+}
+const OPEN_METEO_ENDPOINTS = openMeteoEndpoints(OPEN_METEO_API_KEY);
+const FORECAST_URL = OPEN_METEO_ENDPOINTS.forecast;
+const AIR_URL = OPEN_METEO_ENDPOINTS.air;
+const HOURLY_FIELD_KEYS = [
   "temperature_2m",
   "dew_point_2m",
   "cloud_cover",
@@ -44,11 +60,16 @@ const HOURLY_FIELDS = [
   "visibility",
   "precipitation_probability",
   "precipitation",
+  "rain",
+  "showers",
+  "weather_code",
+  "direct_radiation",
   "wind_speed_10m",
   "wind_gusts_10m",
   "wind_direction_10m",
   "surface_pressure",
-].join(",");
+] as const;
+const HOURLY_FIELDS = HOURLY_FIELD_KEYS.join(",");
 
 function asNumber(value: string | number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -176,6 +197,42 @@ function averageNightMetrics(items: NightWeatherMetrics[]): NightWeatherMetrics 
 
 function forecastInstant(time: string) {
   return new Date(`${time}:00+08:00`);
+}
+
+function weatherAnalysisMetricsAt(city: City, model: OpenMeteoForecast, time: string): WeatherAnalysisMetrics {
+  const index = model.hourly.time.indexOf(time);
+  const solar = getSolarPosition(city, forecastInstant(time));
+  return {
+    totalCloud: asNumber(model.hourly.cloud_cover?.[index]),
+    lowCloud: asNumber(model.hourly.cloud_cover_low?.[index]),
+    midCloud: asNumber(model.hourly.cloud_cover_mid?.[index]),
+    highCloud: asNumber(model.hourly.cloud_cover_high?.[index]),
+    precipitationProbability: asNumber(model.hourly.precipitation_probability?.[index]),
+    precipitation: asNumber(model.hourly.precipitation?.[index]),
+    rain: asNumber(model.hourly.rain?.[index]),
+    showers: asNumber(model.hourly.showers?.[index]),
+    directRadiation: asNumber(model.hourly.direct_radiation?.[index]),
+    solarAltitude: solar.altitude,
+    solarAzimuth: solar.azimuth,
+    weatherCode: asNumber(model.hourly.weather_code?.[index]),
+  };
+}
+
+function buildDailyWeatherAnalysis(
+  city: City,
+  date: string,
+  leadDays: number,
+  available: { config: ModelConfig; data: OpenMeteoForecast }[],
+) {
+  const times = available[0].data.hourly.time.filter((time) => time.startsWith(date));
+  const candidates: WeatherHourCandidate[] = times.map((time) => ({
+    time,
+    models: available.map(({ config, data }) => ({
+      model: config.name,
+      metrics: weatherAnalysisMetricsAt(city, data, time),
+    })),
+  }));
+  return buildWeatherAnalysis(candidates, leadDays);
 }
 
 function nightCandidateTimes(reference: OpenMeteoForecast, sunset: string, nextSunrise?: string) {
@@ -327,17 +384,19 @@ function buildFogForecast(date: string, leadDays: number, available: { config: M
   };
 }
 
-function buildHourly(available: { config: ModelConfig; data: OpenMeteoForecast }[], air: OpenMeteoAir | null): HourlyWeatherPoint[] {
+function buildHourly(city: City, available: { config: ModelConfig; data: OpenMeteoForecast }[], air: OpenMeteoAir | null): HourlyWeatherPoint[] {
   const reference = available[0].data;
   return reference.hourly.time.map((time) => {
     const indices = available.map(({ data }) => data.hourly.time.indexOf(time));
     const modelValues = (key: string) => available.map(({ data }, modelIndex) => asNumber(data.hourly[key]?.[indices[modelIndex]]));
     const airIndex = air?.hourly.time.indexOf(time) ?? -1;
+    const solar = getSolarPosition(city, forecastInstant(time));
     return {
       time,
       temperature: average(modelValues("temperature_2m")),
       dewPoint: average(modelValues("dew_point_2m")),
       humidity: average(modelValues("relative_humidity_2m")),
+      totalCloud: average(modelValues("cloud_cover")),
       lowCloud: average(modelValues("cloud_cover_low")),
       midCloud: average(modelValues("cloud_cover_mid")),
       highCloud: average(modelValues("cloud_cover_high")),
@@ -349,6 +408,12 @@ function buildHourly(available: { config: ModelConfig; data: OpenMeteoForecast }
       windDirection: circularAverage(modelValues("wind_direction_10m")),
       pressure: average(modelValues("surface_pressure")),
       aerosolOpticalDepth: airIndex >= 0 ? asNumber(air?.hourly.aerosol_optical_depth?.[airIndex]) : null,
+      rain: average(modelValues("rain")),
+      showers: average(modelValues("showers")),
+      weatherCode: asNumber(reference.hourly.weather_code?.[indices[0]]),
+      directRadiation: average(modelValues("direct_radiation")),
+      solarAltitude: solar.altitude,
+      solarAzimuth: solar.azimuth,
     };
   });
 }
@@ -425,18 +490,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validForecastPayload(value: unknown): value is OpenMeteoForecast {
   if (!isRecord(value) || !isRecord(value.hourly) || !isRecord(value.daily)) return false;
-  const hourlyTime = value.hourly.time;
-  const dailyTime = value.daily.time;
-  const sunrise = value.daily.sunrise;
-  const sunset = value.daily.sunset;
+  const hourly = value.hourly;
+  const daily = value.daily;
+  const hourlyTime = hourly.time;
+  const dailyTime = daily.time;
+  const sunrise = daily.sunrise;
+  const sunset = daily.sunset;
   return Array.isArray(hourlyTime) && hourlyTime.length >= 168
+    && HOURLY_FIELD_KEYS.every((field) => Array.isArray(hourly[field]) && hourly[field].length >= hourlyTime.length)
     && Array.isArray(dailyTime) && dailyTime.length === 7
     && Array.isArray(sunrise) && sunrise.length === dailyTime.length
     && Array.isArray(sunset) && sunset.length === dailyTime.length;
 }
 
 function validAirPayload(value: unknown): value is OpenMeteoAir {
-  return isRecord(value) && isRecord(value.hourly) && Array.isArray(value.hourly.time) && value.hourly.time.length >= 168;
+  if (!isRecord(value) || !isRecord(value.hourly)) return false;
+  const hourly = value.hourly;
+  const time = hourly.time;
+  return Array.isArray(time)
+    && time.length >= 168
+    && ["aerosol_optical_depth", "pm2_5"].every((field) => Array.isArray(hourly[field]) && hourly[field].length >= time.length);
 }
 
 async function fetchModel(city: City, model: ModelConfig, fetcher: ForecastFetcher) {
@@ -450,6 +523,7 @@ async function fetchModel(city: City, model: ModelConfig, fetcher: ForecastFetch
     forecast_days: "7",
     models: model.id,
   }).toString();
+  if (OPEN_METEO_API_KEY) url.searchParams.set("apikey", OPEN_METEO_API_KEY);
   const payload = await fetcher(url);
   if (!validForecastPayload(payload)) throw new Error("Weather provider returned an invalid forecast payload");
   return payload;
@@ -464,6 +538,7 @@ async function fetchAir(city: City, fetcher: ForecastFetcher) {
     timezone: city.timezone,
     forecast_days: "7",
   }).toString();
+  if (OPEN_METEO_API_KEY) url.searchParams.set("apikey", OPEN_METEO_API_KEY);
   const payload = await fetcher(url);
   if (!validAirPayload(payload)) throw new Error("Weather provider returned an invalid air-quality payload");
   return payload;
@@ -503,6 +578,7 @@ export async function getForecast(city: City, options: ForecastOptions = {}): Pr
       solar,
       moon: buildMoonForecast(city, date, index, candidateTimes, available),
       night: buildNightForecast(city, date, index, candidateTimes, solar, available),
+      weather: buildDailyWeatherAnalysis(city, date, index, available),
     };
   });
 
@@ -511,7 +587,7 @@ export async function getForecast(city: City, options: ForecastOptions = {}): Pr
     generatedAt: now.toISOString(),
     recommendedIndex: recommendedDayIndex(days, now),
     days,
-    hourly: buildHourly(available, airResult),
+    hourly: buildHourly(city, available, airResult),
     astronomy: getAstronomy(city, now),
     sources: [
       ...MODELS.map((model, index) => ({
@@ -527,6 +603,13 @@ export async function getForecast(city: City, options: ForecastOptions = {}): Pr
         status: airResult ? "available" as const : "unavailable" as const,
       },
     ],
+    provenance: {
+      delivery: "Open-Meteo",
+      access: OPEN_METEO_ENDPOINTS.access,
+      license: "CC BY 4.0",
+      modelGuidance: true,
+      warningAuthority: false,
+    },
     disclaimer: "结果是基于数值预报的机会指数，并非气象部门发布的确定性预报；山体遮挡、局地云和临近日出日落的快速变化仍可能改变实况。",
   };
 }

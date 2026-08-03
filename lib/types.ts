@@ -23,12 +23,15 @@ export interface SkyMetrics {
 }
 
 export type PhotographyMode = "glow" | "fog" | "sun" | "moon" | "stars" | "lunar-eclipse" | "solar-eclipse";
+export type WeatherAnalysisMode = "cloud" | "rain" | "rainbow";
+export type WorkspaceMode = PhotographyMode | WeatherAnalysisMode;
 
 export interface HourlyWeatherPoint {
   time: string;
   temperature: number | null;
   dewPoint: number | null;
   humidity: number | null;
+  totalCloud: number | null;
   lowCloud: number | null;
   midCloud: number | null;
   highCloud: number | null;
@@ -40,6 +43,44 @@ export interface HourlyWeatherPoint {
   windDirection: number | null;
   pressure: number | null;
   aerosolOpticalDepth: number | null;
+  rain: number | null;
+  showers: number | null;
+  weatherCode: number | null;
+  directRadiation: number | null;
+  solarAltitude: number;
+  solarAzimuth: number;
+}
+
+export interface WeatherAnalysisMetrics {
+  totalCloud: number | null;
+  lowCloud: number | null;
+  midCloud: number | null;
+  highCloud: number | null;
+  precipitationProbability: number | null;
+  precipitation: number | null;
+  rain: number | null;
+  showers: number | null;
+  directRadiation: number | null;
+  solarAltitude: number;
+  solarAzimuth: number;
+  weatherCode: number | null;
+}
+
+export interface WeatherAnalysisForecast {
+  time: string;
+  score: number;
+  confidence: number;
+  level: string;
+  summary: string;
+  metrics: WeatherAnalysisMetrics;
+  modelScores: { model: string; score: number }[];
+  viewingAzimuth: number | null;
+}
+
+export interface WeatherAnalysisSet {
+  cloud: WeatherAnalysisForecast;
+  rain: WeatherAnalysisForecast;
+  rainbow: WeatherAnalysisForecast;
 }
 
 export interface FogMetrics {
@@ -181,6 +222,7 @@ export interface DayForecast {
   solar: SolarWindow;
   moon: MoonForecast;
   night: NightForecast;
+  weather: WeatherAnalysisSet;
 }
 
 export interface ForecastResponse {
@@ -196,5 +238,12 @@ export interface ForecastResponse {
     role: string;
     status: "available" | "unavailable";
   }[];
+  provenance: {
+    delivery: "Open-Meteo";
+    access: "open-access" | "customer";
+    license: "CC BY 4.0";
+    modelGuidance: true;
+    warningAuthority: false;
+  };
   disclaimer: string;
 }

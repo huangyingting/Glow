@@ -120,7 +120,12 @@ function azimuthAt(date: Date, observer: Observer) {
 }
 
 export function getSolarAltitude(city: City, at: Date) {
-  return horizontal(Body.Sun, at, new Observer(city.latitude, city.longitude, 0), false).altitude;
+  return getSolarPosition(city, at).altitude;
+}
+
+export function getSolarPosition(city: City, at: Date) {
+  const position = horizontal(Body.Sun, at, new Observer(city.latitude, city.longitude, 0), false);
+  return { altitude: position.altitude, azimuth: position.azimuth };
 }
 
 export function getSolarWindow(city: City, sunrise: string, sunset: string): SolarWindow {

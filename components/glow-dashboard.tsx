@@ -10,6 +10,8 @@ import {
   Clock3,
   CloudFog,
   CloudRain,
+  CloudSun,
+  Cloudy,
   Crosshair,
   Database,
   Droplets,
@@ -22,6 +24,7 @@ import {
   Navigation,
   Orbit,
   RefreshCw,
+  Rainbow,
   Search,
   Sparkles,
   Star,
@@ -34,9 +37,10 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/brand-mark";
 import { CITIES } from "@/lib/cities";
+import { precipitationAmount } from "@/lib/weather-analysis";
 import type {
   City,
   DayForecast,
@@ -45,8 +49,10 @@ import type {
   FogForecast,
   ForecastResponse,
   HourlyWeatherPoint,
-  PhotographyMode,
   ScoreResult,
+  WeatherAnalysisForecast,
+  WeatherAnalysisMode,
+  WorkspaceMode,
 } from "@/lib/types";
 
 const WeatherMap = dynamic(() => import("@/components/weather-map"), {
@@ -58,7 +64,8 @@ type LoadingState = "loading" | "updating" | "ready" | "error";
 type GlowKind = "dawn" | "dusk";
 
 interface ModeDefinition {
-  id: PhotographyMode;
+  id: WorkspaceMode;
+  family: "photography" | "weather";
   label: string;
   shortLabel: string;
   description: string;
@@ -66,13 +73,16 @@ interface ModeDefinition {
 }
 
 const MODES: ModeDefinition[] = [
-  { id: "glow", label: "朝霞 / 晚霞", shortLabel: "霞光", description: "分层云与散射", icon: Sparkles },
-  { id: "fog", label: "雾景潜势", shortLabel: "雾景", description: "露点与低层输送", icon: CloudFog },
-  { id: "sun", label: "日出 / 日落", shortLabel: "太阳", description: "方位与黄金时段", icon: SunMedium },
-  { id: "moon", label: "月相 / 月升", shortLabel: "月亮", description: "月相与地平坐标", icon: MoonStar },
-  { id: "stars", label: "星空 / 夜景", shortLabel: "星空", description: "黑夜、月光与脚架风险", icon: Star },
-  { id: "lunar-eclipse", label: "月食", shortLabel: "月食", description: "本地可见食象", icon: Orbit },
-  { id: "solar-eclipse", label: "日食", shortLabel: "日食", description: "本地遮掩与高度", icon: Eclipse },
+  { id: "glow", family: "photography", label: "朝霞 / 晚霞", shortLabel: "霞光", description: "分层云与散射", icon: Sparkles },
+  { id: "fog", family: "photography", label: "雾景潜势", shortLabel: "雾景", description: "露点与低层输送", icon: CloudFog },
+  { id: "sun", family: "photography", label: "日出 / 日落", shortLabel: "太阳", description: "方位与黄金时段", icon: SunMedium },
+  { id: "moon", family: "photography", label: "月相 / 月升", shortLabel: "月亮", description: "月相与地平坐标", icon: MoonStar },
+  { id: "stars", family: "photography", label: "星空 / 夜景", shortLabel: "星空", description: "黑夜、月光与脚架风险", icon: Star },
+  { id: "lunar-eclipse", family: "photography", label: "月食", shortLabel: "月食", description: "本地可见食象", icon: Orbit },
+  { id: "solar-eclipse", family: "photography", label: "日食", shortLabel: "日食", description: "本地遮掩与高度", icon: Eclipse },
+  { id: "cloud", family: "weather", label: "云层分析", shortLabel: "云层", description: "总云量与垂直结构", icon: Cloudy },
+  { id: "rain", family: "weather", label: "降雨分析", shortLabel: "降雨", description: "雨量、阵雨与模式信号", icon: CloudRain },
+  { id: "rainbow", family: "weather", label: "彩虹潜势", shortLabel: "彩虹", description: "阳光、降水与观测方向", icon: Rainbow },
 ];
 
 const KIND_LABEL: Record<EclipseForecast["kind"], string> = {
@@ -124,12 +134,13 @@ function probabilityTone(value: number) {
   return "low";
 }
 
-function modeScore(mode: PhotographyMode, day: DayForecast, data: ForecastResponse, glowKind: GlowKind) {
+function modeScore(mode: WorkspaceMode, day: DayForecast, data: ForecastResponse, glowKind: GlowKind) {
   if (mode === "glow") return day[glowKind].probability;
   if (mode === "fog") return day.fog.probability;
   if (mode === "sun") return Math.max(day.dawn.probability, day.dusk.probability);
   if (mode === "moon") return day.moon.probability;
   if (mode === "stars") return day.night.probability;
+  if (mode === "cloud" || mode === "rain" || mode === "rainbow") return day.weather[mode].score;
   return Math.round((mode === "lunar-eclipse" ? data.astronomy.nextLunarEclipse.obscuration : data.astronomy.nextSolarEclipse.obscuration) * 100);
 }
 
@@ -246,19 +257,22 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
   );
 }
 
-function ModeRail({ active, onChange, sources }: { active: PhotographyMode; onChange: (mode: PhotographyMode) => void; sources?: ForecastResponse["sources"] }) {
+function ModeRail({ active, onChange, sources }: { active: WorkspaceMode; onChange: (mode: WorkspaceMode) => void; sources?: ForecastResponse["sources"] }) {
   const availableSources = sources?.filter((source) => source.status === "available").length ?? 0;
   const healthLabel = sources ? `${availableSources}/${sources.length} 个天气数据源在线` : "天气数据加载中";
   return (
-    <nav className="mode-rail" aria-label="摄影场景">
+    <nav className="mode-rail" aria-label="摄影与天气工具">
       <span className="rail-label">PHOTO MODE</span>
       {MODES.map((mode, index) => {
         const Icon = mode.icon;
         return (
-          <button key={mode.id} type="button" aria-label={mode.label} aria-current={active === mode.id ? "page" : undefined} onClick={() => onChange(mode.id)} title={mode.label}>
-            <span className="mode-index">0{index + 1}</span><Icon size={19} /><strong>{mode.shortLabel}</strong>
-            <span className="mode-tooltip" aria-hidden="true"><b>{mode.label}</b><small>{mode.description}</small></span>
-          </button>
+          <Fragment key={mode.id}>
+            {mode.family === "weather" && MODES[index - 1]?.family !== "weather" && <span className="rail-section-label">WEATHER LAB</span>}
+            <button type="button" data-family={mode.family} aria-label={mode.label} aria-current={active === mode.id ? "page" : undefined} onClick={() => onChange(mode.id)} title={mode.label}>
+              <span className="mode-index">{String(index + 1).padStart(2, "0")}</span><Icon size={19} /><strong>{mode.shortLabel}</strong>
+              <span className="mode-tooltip" aria-hidden="true"><b>{mode.label}</b><small>{mode.description}</small></span>
+            </button>
+          </Fragment>
         );
       })}
       <div className="rail-spacer" />
@@ -267,10 +281,10 @@ function ModeRail({ active, onChange, sources }: { active: PhotographyMode; onCh
   );
 }
 
-function ScoreRing({ value, label, confidence }: { value: number; label: string; confidence?: number }) {
+function ScoreRing({ value, label, confidence, unit = "%" }: { value: number; label: string; confidence?: number; unit?: "%" | "/100" }) {
   return (
     <div className={`score-ring tone-${probabilityTone(value)}`} style={{ "--score": `${value * 3.6}deg` } as React.CSSProperties}>
-      <div><strong>{value}</strong><span>%</span><small>{label}</small></div>
+      <div><strong>{value}</strong><span>{unit}</span><small>{label}</small></div>
       {confidence !== undefined && <b>置信 {confidence}</b>}
     </div>
   );
@@ -298,11 +312,14 @@ function CloudProfile({ event }: { event: EventForecast }) {
   );
 }
 
-function ModelAgreement({ scores }: { scores: { model: string; probability: number }[] }) {
+function ModelAgreement({ scores, valueLabel = "独立模式" }: { scores: ({ model: string; probability: number } | { model: string; score: number })[]; valueLabel?: string }) {
   return (
     <section className="model-agreement compact-section">
-      <header><span><CircleGauge size={15} /> 模式一致性</span><small>独立模式</small></header>
-      {scores.map((score) => <div key={score.model}><span>{score.model}</span><i><b style={{ width: `${score.probability}%` }} /></i><strong>{score.probability}</strong></div>)}
+      <header><span><CircleGauge size={15} /> 模式一致性</span><small>{valueLabel}</small></header>
+      {scores.map((score) => {
+        const value = "probability" in score ? score.probability : score.score;
+        return <div key={score.model}><span>{score.model}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}</strong></div>;
+      })}
     </section>
   );
 }
@@ -481,6 +498,112 @@ function NightPanel({ day, hourly }: { day: DayForecast; hourly: HourlyWeatherPo
   );
 }
 
+function wmoLabel(code: number | null) {
+  if (code === null) return "—";
+  if (code === 0) return "晴";
+  if (code <= 3) return "少云 / 多云";
+  if (code === 45 || code === 48) return "雾";
+  if (code >= 51 && code <= 57) return "毛毛雨";
+  if (code >= 61 && code <= 67) return "雨";
+  if (code >= 71 && code <= 77) return "雪";
+  if (code >= 80 && code <= 82) return "阵雨";
+  if (code >= 85 && code <= 86) return "阵雪";
+  if (code >= 95) return "雷暴";
+  return `WMO ${Math.round(code)}`;
+}
+
+function AnalysisReadout({ forecast, label, unit = "/100" }: { forecast: WeatherAnalysisForecast; label: string; unit?: "%" | "/100" }) {
+  return (
+    <div className="primary-readout analysis-readout">
+      <ScoreRing value={forecast.score} label={forecast.level} confidence={forecast.confidence} unit={unit} />
+      <div><span className="readout-time">{localTime(forecast.time)}</span><small>{label}</small><p>{forecast.summary}</p></div>
+    </div>
+  );
+}
+
+function AnalysisCloudLayers({ forecast }: { forecast: WeatherAnalysisForecast }) {
+  const layers = [
+    { label: "高云", altitude: "6–13 km", value: forecast.metrics.highCloud, color: "high" },
+    { label: "中云", altitude: "2–7 km", value: forecast.metrics.midCloud, color: "mid" },
+    { label: "低云", altitude: "0–2 km", value: forecast.metrics.lowCloud, color: "low" },
+  ];
+  return (
+    <section className="cloud-profile compact-section">
+      <header><span><Layers3 size={15} /> 峰值小时垂直结构</span><small>{localTime(forecast.time)}</small></header>
+      <div className="cloud-stack">
+        {layers.map((layer) => <div key={layer.label}><span>{layer.label}<small>{layer.altitude}</small></span><div className={layer.color}><i style={{ width: `${layer.value ?? 0}%` }} /></div><strong>{layer.value === null ? "—" : `${Math.round(layer.value)}%`}</strong></div>)}
+      </div>
+    </section>
+  );
+}
+
+function CloudAnalysisPanel({ forecast, hourly }: { forecast: WeatherAnalysisForecast; hourly: HourlyWeatherPoint[] }) {
+  return (
+    <>
+      <AnalysisReadout forecast={forecast} label="当日峰值总云量" unit="%" />
+      <div className="quick-metrics four">
+        <span><Cloudy />总云量<strong>{forecast.metrics.totalCloud === null ? "—" : `${Math.round(forecast.metrics.totalCloud)}%`}</strong></span>
+        <span><Layers3 />低云<strong>{forecast.metrics.lowCloud === null ? "—" : `${Math.round(forecast.metrics.lowCloud)}%`}</strong></span>
+        <span><Layers3 />中云<strong>{forecast.metrics.midCloud === null ? "—" : `${Math.round(forecast.metrics.midCloud)}%`}</strong></span>
+        <span><Layers3 />高云<strong>{forecast.metrics.highCloud === null ? "—" : `${Math.round(forecast.metrics.highCloud)}%`}</strong></span>
+      </div>
+      <AnalysisCloudLayers forecast={forecast} />
+      <Meteogram hourly={hourly} />
+      <ModelAgreement scores={forecast.modelScores} valueLabel="峰值云量" />
+      <p className="panel-footnote">云量来自网格化数值模式，不是现场云底高度观测；局地积云可能在模式网格内被平滑。</p>
+    </>
+  );
+}
+
+function RainAnalysisPanel({ forecast, hourly }: { forecast: WeatherAnalysisForecast; hourly: HourlyWeatherPoint[] }) {
+  const amount = precipitationAmount(forecast.metrics);
+  return (
+    <>
+      <AnalysisReadout forecast={forecast} label="当日最强降水窗口" />
+      <div className="quick-metrics four">
+        <span><Droplets />模式概率<strong>{forecast.metrics.precipitationProbability === null ? "未提供" : `${Math.round(forecast.metrics.precipitationProbability)}%`}</strong></span>
+        <span><CloudRain />总降水<strong>{amount === null ? "—" : `${amount.toFixed(1)} mm`}</strong></span>
+        <span><CloudRain />连续性雨<strong>{forecast.metrics.rain === null ? "—" : `${forecast.metrics.rain.toFixed(1)} mm`}</strong></span>
+        <span><CloudSun />阵雨<strong>{forecast.metrics.showers === null ? "—" : `${forecast.metrics.showers.toFixed(1)} mm`}</strong></span>
+      </div>
+      <div className="method-alert"><AlertTriangle size={14} /><span><strong>降水信号不是降雨概率</strong>CMA GRAPES 不发布该字段；系统用明确的小时雨量补足信号，并始终把缺失值显示为“未提供”。峰值时段天气代码：{wmoLabel(forecast.metrics.weatherCode)}。</span></div>
+      <Meteogram hourly={hourly} />
+      <ModelAgreement scores={forecast.modelScores} valueLabel="综合降水信号" />
+    </>
+  );
+}
+
+function RainbowAnalysisPanel({ forecast, hourly }: { forecast: WeatherAnalysisForecast; hourly: HourlyWeatherPoint[] }) {
+  const amount = precipitationAmount(forecast.metrics);
+  return (
+    <>
+      <section className="rainbow-hero">
+        <div className="rainbow-arc" aria-hidden="true"><i /><i /><i /></div>
+        <span className="scene-eyebrow">RAIN + DIRECT SUNLIGHT + GEOMETRY</span>
+        <h2>{forecast.level}</h2>
+        <p>{forecast.summary}</p>
+      </section>
+      <AnalysisReadout forecast={forecast} label="当日最佳彩虹潜势窗口" />
+      <div className="quick-metrics four">
+        <span><CloudSun />直射辐射<strong>{forecast.metrics.directRadiation === null ? "—" : `${Math.round(forecast.metrics.directRadiation)} W/m²`}</strong></span>
+        <span><SunMedium />太阳高度<strong>{forecast.metrics.solarAltitude.toFixed(1)}°</strong></span>
+        <span><CloudRain />同小时降水<strong>{amount === null ? "—" : `${amount.toFixed(1)} mm`}</strong></span>
+        <span><Navigation />建议观察方向<strong>{compass(forecast.viewingAzimuth)}</strong></span>
+      </div>
+      <div className="method-alert rainbow-limit"><AlertTriangle size={14} /><span><strong>这是物理条件潜势，不是“此处必见彩虹”</strong>彩虹要求太阳在观察者身后、雨幕位于前方；单点网格不能判断雨幕的空间方位。建议面向反太阳方向现场寻找局地阵雨。</span></div>
+      <Meteogram hourly={hourly} />
+      <ModelAgreement scores={forecast.modelScores} valueLabel="彩虹条件信号" />
+    </>
+  );
+}
+
+function WeatherAnalysisPanel({ mode, day, hourly }: { mode: WeatherAnalysisMode; day: DayForecast; hourly: HourlyWeatherPoint[] }) {
+  const forecast = day.weather[mode];
+  if (mode === "cloud") return <CloudAnalysisPanel forecast={forecast} hourly={hourly} />;
+  if (mode === "rain") return <RainAnalysisPanel forecast={forecast} hourly={hourly} />;
+  return <RainbowAnalysisPanel forecast={forecast} hourly={hourly} />;
+}
+
 function FieldBriefing({ point, targetLabel, elevation }: { point: HourlyWeatherPoint; targetLabel: string; elevation: number | null }) {
   const spread = point.temperature !== null && point.dewPoint !== null ? Math.max(0, point.temperature - point.dewPoint) : null;
   return (
@@ -527,20 +650,21 @@ function SourceDisclosure({ data }: { data: ForecastResponse }) {
       <summary><span><Database size={14} /> 数据与模型</span><ChevronDown size={14} /></summary>
       <div>
         {data.sources.map((source) => <p key={source.id}><i className={source.status} /><span><strong>{source.name}</strong><small>{source.role}</small></span></p>)}
-        <p><i className="available" /><span><strong><a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo ↗</a></strong><small>天气与空气质量统一接口 · CC BY 4.0 数据归属</small></span></p>
+        <p><i className="available" /><span><strong><a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo ↗</a></strong><small>{data.provenance.access === "customer" ? "商业客户接口" : "非商业开放接口"} · {data.provenance.license} · ECMWF / CMA / CAMS 交付层</small></span></p>
         <p><i className="available" /><span><strong>Astronomy Engine</strong><small>VSOP87 / 天体位置与食象搜索</small></span></p>
+        <p><i /><span><strong><a href="https://weather.cma.cn/web/alarm/map.html" target="_blank" rel="noreferrer">中国气象局预警 ↗</a></strong><small>权威灾害预警来源 · 当前未接入本工作台，模型结果不能替代预警</small></span></p>
       </div>
     </details>
   );
 }
 
-function Inspector({ data, day, mode, glowKind, setGlowKind, hourly, fieldPoint, fieldLabel }: { data: ForecastResponse; day: DayForecast; mode: PhotographyMode; glowKind: GlowKind; setGlowKind: (kind: GlowKind) => void; hourly: HourlyWeatherPoint[]; fieldPoint: HourlyWeatherPoint | null; fieldLabel: string }) {
+function Inspector({ data, day, mode, glowKind, setGlowKind, hourly, fieldPoint, fieldLabel }: { data: ForecastResponse; day: DayForecast; mode: WorkspaceMode; glowKind: GlowKind; setGlowKind: (kind: GlowKind) => void; hourly: HourlyWeatherPoint[]; fieldPoint: HourlyWeatherPoint | null; fieldLabel: string }) {
   const definition = MODES.find((item) => item.id === mode) ?? MODES[0];
   const Icon = definition.icon;
   return (
     <aside className="inspector" aria-label={`${definition.label}专业数据面板`}>
       <header className="inspector-header">
-        <div className="scene-title"><span><Icon size={18} /></span><div><small>ACTIVE SCENE</small><h1>{definition.label}</h1></div></div>
+        <div className="scene-title"><span><Icon size={18} /></span><div><small>{definition.family === "weather" ? "ACTIVE WEATHER TOOL" : "ACTIVE SCENE"}</small><h1>{definition.label}</h1></div></div>
         <span className="data-fresh"><i /> {new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).format(new Date(data.generatedAt))}</span>
       </header>
       <div className="inspector-scroll">
@@ -551,6 +675,7 @@ function Inspector({ data, day, mode, glowKind, setGlowKind, hourly, fieldPoint,
         {mode === "stars" && <NightPanel day={day} hourly={hourly} />}
         {mode === "lunar-eclipse" && <EclipsePanel event={data.astronomy.nextLunarEclipse} type="lunar" data={data} />}
         {mode === "solar-eclipse" && <EclipsePanel event={data.astronomy.nextSolarEclipse} type="solar" data={data} />}
+        {(mode === "cloud" || mode === "rain" || mode === "rainbow") && <WeatherAnalysisPanel mode={mode} day={day} hourly={hourly} />}
         {fieldPoint && <FieldBriefing point={fieldPoint} targetLabel={fieldLabel} elevation={data.location.elevation} />}
         <SourceDisclosure data={data} />
         <p className="inspector-disclaimer">机会指数用于摄影计划，不替代气象灾害预警。山体、建筑和局地微气候仍需现场判断。</p>
@@ -583,7 +708,7 @@ function EclipseEventTimeline({ data, mode }: { data: ForecastResponse; mode: "l
   );
 }
 
-function DayTimeline({ data, selected, mode, glowKind, onSelect }: { data: ForecastResponse; selected: number; mode: PhotographyMode; glowKind: GlowKind; onSelect: (index: number) => void }) {
+function DayTimeline({ data, selected, mode, glowKind, onSelect }: { data: ForecastResponse; selected: number; mode: WorkspaceMode; glowKind: GlowKind; onSelect: (index: number) => void }) {
   if (mode === "lunar-eclipse" || mode === "solar-eclipse") return <EclipseEventTimeline data={data} mode={mode} />;
   return (
     <div className="map-timeline" role="tablist" aria-label="七天摄影窗口">
@@ -602,7 +727,7 @@ function forecastTime(value: string) {
   return new Date(value.endsWith("Z") ? value : `${value}:00+08:00`).getTime();
 }
 
-function fieldTarget(mode: PhotographyMode, day: DayForecast, data: ForecastResponse, glowKind: GlowKind) {
+function fieldTarget(mode: WorkspaceMode, day: DayForecast, data: ForecastResponse, glowKind: GlowKind) {
   if (mode === "glow") return { time: day[glowKind].time, label: glowKind === "dawn" ? "朝霞窗口" : "晚霞窗口" };
   if (mode === "fog") return { time: day.fog.time, label: "雾景窗口" };
   if (mode === "sun") {
@@ -611,6 +736,9 @@ function fieldTarget(mode: PhotographyMode, day: DayForecast, data: ForecastResp
   }
   if (mode === "moon") return { time: day.moon.time, label: "月面窗口" };
   if (mode === "stars") return { time: day.night.time, label: "星空窗口" };
+  if (mode === "cloud") return { time: day.weather.cloud.time, label: "峰值云量" };
+  if (mode === "rain") return { time: day.weather.rain.time, label: "降水窗口" };
+  if (mode === "rainbow") return { time: day.weather.rainbow.time, label: "彩虹潜势" };
   const event = mode === "lunar-eclipse" ? data.astronomy.nextLunarEclipse : data.astronomy.nextSolarEclipse;
   return { time: event.peak, label: mode === "lunar-eclipse" ? "月食食甚" : "日食食甚" };
 }
@@ -628,7 +756,7 @@ export function GlowDashboard() {
   const [data, setData] = useState<ForecastResponse | null>(null);
   const [status, setStatus] = useState<LoadingState>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<PhotographyMode>("glow");
+  const [mode, setMode] = useState<WorkspaceMode>("glow");
   const [glowKind, setGlowKind] = useState<GlowKind>("dusk");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const requestRef = useRef(0);
@@ -687,7 +815,9 @@ export function GlowDashboard() {
     : mode === "stars" ? day?.night.moon.azimuth ?? null
       : mode === "lunar-eclipse" ? data?.astronomy.nextLunarEclipse.azimuth ?? null
         : null;
-  const eventAzimuth = mode === "solar-eclipse" ? data?.astronomy.nextSolarEclipse.azimuth ?? null : null;
+  const eventAzimuth = mode === "solar-eclipse" ? data?.astronomy.nextSolarEclipse.azimuth ?? null
+    : mode === "rainbow" ? day?.weather.rainbow.viewingAzimuth ?? null
+      : null;
   return (
     <main className="photo-workspace">
       <a className="skip-link" href="#workspace">跳到摄影工作区</a>
@@ -725,7 +855,7 @@ export function GlowDashboard() {
             <div className="map-direction-legend">
               {showSunDirections && <><span className="sunrise-line">日出 {compass(day?.solar.sunriseAzimuth ?? null)}</span><span className="sunset-line">日落 {compass(day?.solar.sunsetAzimuth ?? null)}</span></>}
               {moonAzimuth !== null && <span className="moon-line">{mode === "lunar-eclipse" ? "月食" : mode === "stars" ? "窗口月亮" : "月亮"} {compass(moonAzimuth)}</span>}
-              {eventAzimuth !== null && <span className="event-line">日食 {compass(eventAzimuth)}</span>}
+              {eventAzimuth !== null && <span className="event-line">{mode === "rainbow" ? "观虹" : "日食"} {compass(eventAzimuth)}</span>}
             </div>
           )}
           <div className="coordinate-hud">

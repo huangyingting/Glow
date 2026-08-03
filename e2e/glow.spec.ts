@@ -14,11 +14,16 @@ test("API returns the professional weather and local astronomy payload", async (
   expect(payload.days.every((day: { moon: { altitude: number; summary: string } }) => day.moon.altitude > 0 || day.moon.summary.includes("暂无数据"))).toBeTruthy();
   expect(payload.days[0].night.modelScores).toHaveLength(2);
   expect(payload.days[0].solar.astronomicalDarknessMinutes).toBeGreaterThanOrEqual(0);
+  expect(payload.days[0].weather.cloud.score).toBeGreaterThanOrEqual(0);
+  expect(payload.days[0].weather.rain.score).toBeGreaterThanOrEqual(0);
+  expect(payload.days[0].weather.rainbow.score).toBeGreaterThanOrEqual(0);
   expect(payload.hourly[0].windGusts).not.toBeNull();
+  expect(payload.hourly[0]).toEqual(expect.objectContaining({ totalCloud: expect.any(Number), solarAltitude: expect.any(Number), solarAzimuth: expect.any(Number) }));
   expect(payload.astronomy.nextLunarEclipse.visible).toBe(true);
   expect(payload.astronomy.nextSolarEclipse.visible).toBe(true);
   expect(payload.sources.map((source: { id: string }) => source.id)).toEqual(["ecmwf_ifs025", "cma_grapes_global", "cams_global"]);
   expect(payload.sources.slice(0, 2).some((source: { status: string }) => source.status === "available")).toBeTruthy();
+  expect(payload.provenance).toEqual(expect.objectContaining({ delivery: "Open-Meteo", license: "CC BY 4.0", warningAuthority: false }));
 
   expect((await request.get("/api/forecast?lat=1&lon=1")).status()).toBe(400);
   expect((await request.get("/api/forecast?lat=37.5665&lon=126.978")).status()).toBe(400);
@@ -26,6 +31,31 @@ test("API returns the professional weather and local astronomy payload", async (
   const coordinate = await request.get("/api/forecast?lat=31.23&lon=121.47&name=测试落点");
   expect(coordinate.ok()).toBeTruthy();
   expect(coordinate.headers()["cache-control"]).toContain("private");
+});
+
+test("cloud, rain, and rainbow tools reuse one location and date context without navigation", async ({ page }) => {
+  let forecastRequests = 0;
+  page.on("request", (request) => { if (request.url().includes("/api/forecast")) forecastRequests += 1; });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+  const baselineRequests = forecastRequests;
+  const dateTabs = page.getByRole("tablist", { name: "七天摄影窗口" }).getByRole("tab");
+  await dateTabs.nth(3).click();
+
+  await page.getByTitle("云层分析", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "云层分析" })).toBeVisible();
+  await expect(page.getByText("当日峰值总云量", { exact: true })).toBeVisible();
+  await expect(dateTabs.nth(3)).toHaveAttribute("aria-selected", "true");
+
+  await page.getByTitle("降雨分析", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "降雨分析" })).toBeVisible();
+  await expect(page.getByText("降水信号不是降雨概率", { exact: true })).toBeVisible();
+
+  await page.getByTitle("彩虹潜势", { exact: true }).click();
+  await expect(page.getByRole("heading", { name: "彩虹潜势" })).toBeVisible();
+  await expect(page.getByText("这是物理条件潜势，不是“此处必见彩虹”", { exact: true })).toBeVisible();
+  expect(forecastRequests).toBe(baselineRequests);
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test("refresh, degraded source health, and rejected map picks stay truthful", async ({ page }) => {
@@ -56,7 +86,7 @@ test("refresh, degraded source health, and rejected map picks stay truthful", as
   await expect.poll(async () => (await page.locator(".map-pin-marker").boundingBox())?.x).toBeCloseTo(markerBefore!.x, 0);
 });
 
-test("map click moves the observation point and recalculates all photography modes", async ({ page }) => {
+test("map click moves the observation point and recalculates all workspace tools", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
   page.on("pageerror", (error) => errors.push(error.message));
@@ -87,12 +117,16 @@ test("map click moves the observation point and recalculates all photography mod
     ["星空 / 夜景", "当晚最佳星空窗口"],
     ["月食", "NEXT LOCALLY VISIBLE EVENT"],
     ["日食", "严禁用肉眼"],
+    ["云层分析", "当日峰值总云量"],
+    ["降雨分析", "降水信号不是降雨概率"],
+    ["彩虹潜势", "这是物理条件潜势"],
   ];
   for (const [title, evidence] of modes) {
     await page.getByTitle(title, { exact: true }).click();
     await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
     await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
   }
+  await page.getByTitle("日食", { exact: true }).click();
   await expect(page.getByLabel("下一次本地可见食象")).toContainText("尚无可信天气预报");
   await expect(page.getByRole("tablist", { name: "七天摄影窗口" })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -127,7 +161,7 @@ test("mobile keeps the map-first workflow usable without horizontal overflow", a
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(page.locator("[data-map-ready=true]")).toBeVisible();
-  await expect(page.getByLabel("摄影场景")).toBeVisible();
+  await expect(page.getByLabel("摄影与天气工具")).toBeVisible();
   await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
   await expect(page.locator(".map-stage")).toHaveCSS("height", "470px");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

@@ -15,7 +15,7 @@
 5. 使用 Astronomy Engine 在服务端根据经纬度计算太阳/月亮位置及本地食象，不依赖静态事件表。
 6. 使用 Open-Meteo 的 10 m 阵风字段补充脚架稳定性；该字段表示前一小时最大阵风，而不是瞬时持续风。
 
-Open-Meteo 的免费开放接口适合原型和非商业使用，并要求按其许可进行归属说明；正式商业上线前应复核当时的套餐、调用量和数据许可，不能把“无需密钥”理解为“没有使用条款”。
+Open-Meteo 的开放接口适合非商业使用、受公平调用限制，并要求按 CC BY 4.0 进行归属说明；正式商业上线需要 customer API 套餐，不能把“无需密钥”理解为“没有使用条款”。霁光配置 `OPEN_METEO_API_KEY` 后会同时切换天气与空气质量 customer 端点，避免商业部署仍误用开放主机。
 
 这里的核心收益不是简单地把两个数字平均，而是用模式分歧表达不确定性。北京坐标的接口实测中，两套模式在同一时刻的低云和高云可以出现很大差异；单模式给出的高概率不应被展示成高置信结论。
 
@@ -48,6 +48,17 @@ Open-Meteo 的免费开放接口适合原型和非商业使用，并要求按其
 - 对分数做 isotonic regression 或 Platt scaling 等概率校准；
 - 定期检查不同模式版本升级造成的数据漂移。
 
+## 云、雨和彩虹字段语义
+
+新增天气工具继续使用同一份 168 小时响应，不额外调用一个来源不明的“彩虹 API”。天气端点要求总云量、低/中/高云量、`precipitation_probability`、`precipitation`、`rain`、`showers`、WMO `weather_code` 与 `direct_radiation` 数组完整返回；缺少必需字段的提供方响应会在服务端被拒绝，而不是用零静默填充。
+
+- 云层分数是所选日的峰值总云量百分比；三层云用于解释垂直结构，不把高云或低云主观等同于拍摄质量。
+- 降雨工具保留 Open-Meteo/ECMWF 的降水概率，但 CMA GRAPES 当前没有该字段。CMA 空值不会被伪造；明确的 mm/h 降水量会贡献一个 0–100 综合降水信号，界面仍单独展示实际雨量。
+- 彩虹潜势要求同一网格小时内出现降水或阵雨、直射辐射，以及高于地平线且低于约 42° 的太阳。太阳方位由 Astronomy Engine 按坐标和小时计算，建议观察方向取反太阳方位。
+- 点位数值模式无法判断雨幕在观察者的哪一侧，也无法验证局地遮挡、光学厚度或肉眼可见性。因此彩虹输入置信上限为 70，结果不能称为确定性预报。
+
+这些字段是模式指导，不是站点实况或雷达临近监测。对流、暴雨和灾害风险必须转到[中国气象局气象灾害预警](https://weather.cma.cn/web/alarm/map.html)复核。
+
 ## 官方与产品文档
 
 - [ECMWF Open Data](https://www.ecmwf.int/en/forecasts/datasets/open-data)
@@ -56,6 +67,8 @@ Open-Meteo 的免费开放接口适合原型和非商业使用，并要求按其
 - [Copernicus Atmosphere Monitoring Service](https://atmosphere.copernicus.eu/)
 - [Open-Meteo Weather Forecast API](https://open-meteo.com/en/docs)
 - [Open-Meteo Air Quality API](https://open-meteo.com/en/docs/air-quality-api)
+- [Open-Meteo licence](https://open-meteo.com/en/licence)
+- [Open-Meteo pricing and commercial-use terms](https://open-meteo.com/en/pricing)
 - [彩云天气 API](https://docs.caiyunapp.com/weather-api/)
 - [和风天气开发文档](https://dev.qweather.com/docs/)
 - [Astronomy Engine](https://github.com/cosinekitty/astronomy)

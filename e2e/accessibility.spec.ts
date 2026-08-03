@@ -10,7 +10,7 @@ for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
   { name: "mobile", width: 390, height: 844 },
 ]) {
-  test(`all photography scenes meet automated accessibility checks on ${viewport.name}`, async ({ page }) => {
+  test(`all workspace tools meet automated accessibility checks on ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
@@ -20,7 +20,7 @@ for (const viewport of [
     await expect(page.locator("#workspace")).toBeFocused();
     await expectAccessible(page, `${viewport.name} glow`);
 
-    for (const scene of ["雾景潜势", "日出 / 日落", "月相 / 月升", "星空 / 夜景", "月食", "日食"]) {
+    for (const scene of ["雾景潜势", "日出 / 日落", "月相 / 月升", "星空 / 夜景", "月食", "日食", "云层分析", "降雨分析", "彩虹潜势"]) {
       await page.getByTitle(scene, { exact: true }).click();
       await expect(page.getByRole("heading", { name: scene, exact: true })).toBeVisible();
       await expectAccessible(page, `${viewport.name} ${scene}`);
