@@ -163,7 +163,7 @@ test("mobile keeps the map-first workflow usable without horizontal overflow", a
   await expect(page.locator("[data-map-ready=true]")).toBeVisible();
   await expect(page.getByLabel("摄影与天气工具")).toBeVisible();
   await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
-  await expect(page.locator(".map-stage")).toHaveCSS("height", "470px");
+  await expect(page.locator(".map-stage")).toHaveCSS("height", "500px");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
 

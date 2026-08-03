@@ -27,6 +27,19 @@ async function capture(page: Page, viewport: string, state: string) {
 async function expectHealthyLayout(page: Page) {
   const diagnostics = await page.evaluate(() => {
     const root = document.documentElement;
+    const typographyTargets = [
+      [".workspace-search input", 13],
+      [".mode-rail button strong", 11],
+      [".timeline-days span", 9],
+      [".timeline-days strong", 11],
+      [".scene-title h1", 18],
+      [".primary-readout p", 12],
+      [".quick-metrics > span", 10],
+      [".compact-section > header > span", 12],
+      [".method-alert span", 10],
+      [".panel-footnote", 10],
+      [".source-disclosure small", 10],
+    ] as const;
     const duplicateIds = [...document.querySelectorAll<HTMLElement>("[id]")]
       .map((element) => element.id)
       .filter((id, index, ids) => ids.indexOf(id) !== index);
@@ -45,12 +58,18 @@ async function expectHealthyLayout(page: Page) {
         return rect.left < -1 || rect.right > root.clientWidth + 1;
       })
       .map((element) => ({ className: element.className, rect: element.getBoundingClientRect().toJSON() }));
+    const undersizedCriticalText = typographyTargets.flatMap(([selector, minimum]) =>
+      [...document.querySelectorAll<HTMLElement>(selector)]
+        .filter((element) => element.getClientRects().length > 0 && Number.parseFloat(window.getComputedStyle(element).fontSize) < minimum)
+        .map((element) => ({ selector, minimum, actual: window.getComputedStyle(element).fontSize, text: element.textContent?.trim().slice(0, 40) })),
+    );
 
     return {
       horizontalOverflow: root.scrollWidth - root.clientWidth,
       duplicateIds,
       unnamedControls,
       clippedRegions,
+      undersizedCriticalText,
     };
   });
 
@@ -59,6 +78,7 @@ async function expectHealthyLayout(page: Page) {
     duplicateIds: [],
     unnamedControls: [],
     clippedRegions: [],
+    undersizedCriticalText: [],
   });
   expect(diagnostics.horizontalOverflow).toBeLessThanOrEqual(1);
 }
@@ -156,6 +176,7 @@ for (const viewport of viewports) {
     await sources.click();
     await expect(page.getByText("Astronomy Engine", { exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: /中国气象局预警/ })).toBeVisible();
+    await expectHealthyLayout(page);
     await capture(page, viewport.name, "18-data-sources-open");
     await sources.click();
     await expect(page.getByText("Astronomy Engine", { exact: true })).toBeHidden();
