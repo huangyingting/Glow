@@ -13,6 +13,7 @@ import {
   SearchRiseSet,
 } from "astronomy-engine";
 import type { AstronomySummary, City, EclipseForecast, MoonGeometry, SolarWindow } from "@/lib/types";
+import { getMeteorShowers } from "@/lib/meteor-showers";
 
 function localDateStart(date: Date, dateKey?: string) {
   const china = dateKey ?? new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -108,6 +109,7 @@ export function getAstronomy(city: City, at = new Date()): AstronomySummary {
   return {
     nextLunarEclipse: visibleLunarEclipse(at, observer),
     nextSolarEclipse: visibleSolarEclipse(at, observer),
+    meteorShowers: getMeteorShowers(city, at),
   };
 }
 

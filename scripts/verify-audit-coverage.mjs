@@ -2,26 +2,22 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
-const expectedTools = [
-  ["glow", "photography"], ["fog", "photography"], ["sun", "photography"], ["moon", "photography"],
-  ["stars", "photography"], ["lunar-eclipse", "photography"], ["solar-eclipse", "photography"],
-  ["cloud", "weather"], ["rain", "weather"], ["rainbow", "weather"],
-];
+const expectedWorkspaces = ["opportunities", "weather", "events"];
 const expectedScreenshots = {
-  "phone-short-320": 23,
-  "phone-320": 23,
-  "phone-390": 26,
-  "tablet-768": 23,
-  "laptop-short-1024": 23,
-  "laptop-1024": 23,
-  "desktop-1440": 23,
-  "wide-1920": 23,
+  "phone-short-320": 10,
+  "phone-320": 10,
+  "phone-390": 12,
+  "tablet-768": 10,
+  "laptop-short-1024": 10,
+  "laptop-1024": 10,
+  "desktop-1440": 10,
+  "wide-1920": 10,
 };
 
 const dashboard = await readFile(path.join(root, "components/glow-dashboard.tsx"), "utf8");
-const registeredTools = [...dashboard.matchAll(/\{ id: "([^"]+)", family: "([^"]+)"/g)].map((match) => [match[1], match[2]]);
-if (JSON.stringify(registeredTools) !== JSON.stringify(expectedTools)) {
-  throw new Error(`Tool registry mismatch: ${registeredTools.map((tool) => tool.join(":")).join(", ")}`);
+const registeredWorkspaces = [...dashboard.matchAll(/\{ id: "(opportunities|weather|events)", label:/g)].map((match) => match[1]);
+if (JSON.stringify(registeredWorkspaces) !== JSON.stringify(expectedWorkspaces)) {
+  throw new Error(`Workspace registry mismatch: ${registeredWorkspaces.join(", ")}`);
 }
 
 const report = JSON.parse(await readFile(path.join(root, "test-results/playwright-results.json"), "utf8"));
@@ -47,19 +43,20 @@ for (const [viewport, expected] of Object.entries(expectedScreenshots)) {
 
 const summary = {
   generatedAt: new Date().toISOString(),
-  tools: {
-    expected: expectedTools.length,
-    covered: registeredTools.length,
-    photography: registeredTools.filter((tool) => tool[1] === "photography").map((tool) => tool[0]),
-    weather: registeredTools.filter((tool) => tool[1] === "weather").map((tool) => tool[0]),
+  workspaces: {
+    expected: expectedWorkspaces.length,
+    covered: registeredWorkspaces,
   },
-  datesPerWeatherMode: 7,
+  dailyOpportunities: 9,
+  weatherViews: ["cloud", "rain", "wind"],
+  rareEventKinds: ["solar-eclipse", "lunar-eclipse", "meteor-shower"],
+  datesPerForecastWorkspace: 7,
   responsiveViewports: Object.keys(expectedScreenshots).length,
   screenshots: Object.values(screenshotCounts).reduce((sum, count) => sum + count, 0),
   screenshotCounts,
   playwrightSpecs: specs.length,
   playwrightFailures: failed.length,
-  axeScans: 24,
+  axeScans: 14,
 };
 await writeFile(path.join(root, "test-results/audit-summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
 console.log(JSON.stringify(summary));

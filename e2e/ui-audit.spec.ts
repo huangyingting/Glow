@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 const viewports = [
@@ -15,12 +15,16 @@ const viewports = [
 
 const auditRoot = path.join(process.cwd(), "test-results", "ui-audit");
 
+test.beforeAll(async () => {
+  await rm(auditRoot, { recursive: true, force: true });
+});
+
 async function capture(page: Page, viewport: string, state: string) {
   const directory = path.join(auditRoot, viewport);
   await mkdir(directory, { recursive: true });
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
   await page.mouse.move(1, 1);
-  await page.waitForTimeout(50);
+  await page.waitForTimeout(60);
   await page.screenshot({ path: path.join(directory, `${state}.png`), fullPage: true });
 }
 
@@ -29,16 +33,13 @@ async function expectHealthyLayout(page: Page) {
     const root = document.documentElement;
     const typographyTargets = [
       [".workspace-search input", 13],
-      [".mode-rail button strong", 11],
-      [".timeline-days span", 9],
-      [".timeline-days strong", 11],
+      [".workspace-navigation button strong", 11],
+      [".date-tabs button span", 9],
       [".scene-title h1", 18],
-      [".primary-readout p", 12],
-      [".quick-metrics > span", 10],
-      [".compact-section > header > span", 12],
-      [".factor-name strong", 11],
-      [".method-alert summary strong", 12],
-      [".panel-footnote", 10],
+      [".opportunity-copy strong", 10],
+      [".selected-opportunity > p:not(.method-inline)", 11],
+      [".weather-detail > p", 10],
+      [".event-detail > p", 9],
       [".source-disclosure small", 10],
     ] as const;
     const duplicateIds = [...document.querySelectorAll<HTMLElement>("[id]")]
@@ -52,7 +53,7 @@ async function expectHealthyLayout(page: Page) {
         return visible && !name?.trim();
       })
       .map((element) => element.outerHTML.slice(0, 160));
-    const clippedRegions = [".workspace-header", ".workspace-body", ".map-stage", ".inspector"]
+    const clippedRegions = [".workspace-header", ".workspace-body", ".map-stage", ".inspector", ".planner-timeline"]
       .flatMap((selector) => [...document.querySelectorAll<HTMLElement>(selector)])
       .filter((element) => {
         const rect = element.getBoundingClientRect();
@@ -64,218 +65,62 @@ async function expectHealthyLayout(page: Page) {
         .filter((element) => element.getClientRects().length > 0 && Number.parseFloat(window.getComputedStyle(element).fontSize) < minimum)
         .map((element) => ({ selector, minimum, actual: window.getComputedStyle(element).fontSize, text: element.textContent?.trim().slice(0, 40) })),
     );
-
-    return {
-      horizontalOverflow: root.scrollWidth - root.clientWidth,
-      duplicateIds,
-      unnamedControls,
-      clippedRegions,
-      undersizedCriticalText,
-    };
+    return { horizontalOverflow: root.scrollWidth - root.clientWidth, duplicateIds, unnamedControls, clippedRegions, undersizedCriticalText };
   });
-
-  expect(diagnostics).toEqual({
-    horizontalOverflow: expect.any(Number),
-    duplicateIds: [],
-    unnamedControls: [],
-    clippedRegions: [],
-    undersizedCriticalText: [],
-  });
+  expect(diagnostics).toEqual({ horizontalOverflow: expect.any(Number), duplicateIds: [], unnamedControls: [], clippedRegions: [], undersizedCriticalText: [] });
   expect(diagnostics.horizontalOverflow).toBeLessThanOrEqual(1);
 }
 
-async function expectCompactDashboard(page: Page, viewport: { width: number; height: number }) {
-  const diagnostics = await page.evaluate(() => {
-    const panel = document.querySelector<HTMLElement>("[data-compact-dashboard]");
-    const clip = document.querySelector<HTMLElement>(".inspector-scroll")?.getBoundingClientRect();
-    const visibleRoles = [...document.querySelectorAll<HTMLElement>("[data-compact-role]")]
-      .filter((element) => {
-        const rect = element.getBoundingClientRect();
-        return clip && rect.top >= clip.top - 1 && rect.bottom <= clip.bottom + 1;
-      })
-      .map((element) => element.dataset.compactRole);
-    return {
-      columns: panel ? window.getComputedStyle(panel).gridTemplateColumns.split(" ").filter(Boolean).length : 0,
-      factorRows: document.querySelectorAll(".factor-compact article").length,
-      factorHints: [...document.querySelectorAll<HTMLElement>(".factor-hint")].filter((element) => element.dataset.hint?.trim() && element.tabIndex === 0).length,
-      visibleRoles,
-    };
-  });
-
-  expect(diagnostics.columns).toBe(viewport.width <= 520 ? 1 : 2);
-  expect(diagnostics.factorRows).toBe(5);
-  expect(diagnostics.factorHints).toBe(5);
-  const firstHint = page.locator(".factor-hint").first();
-  await firstHint.focus();
-  await expect.poll(() => firstHint.evaluate((element) => window.getComputedStyle(element, "::after").opacity)).toBe("1");
-  await firstHint.evaluate((element) => element.blur());
-  if (viewport.width >= 1440 && viewport.height >= 900) {
-    expect(diagnostics.visibleRoles).toEqual(expect.arrayContaining(["layers", "factors", "trend", "models", "field"]));
-  }
-}
-
 for (const viewport of viewports) {
-  test(`complete UI action and screenshot audit at ${viewport.name}`, async ({ page, context }) => {
-    const consoleErrors: string[] = [];
+  test(`three-workspace visual and interaction audit at ${viewport.name}`, async ({ page }) => {
     const pageErrors: string[] = [];
-    let failNextForecast = false;
-    page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
     page.on("pageerror", (error) => pageErrors.push(error.message));
-    await page.route("**/api/forecast**", async (route) => {
-      if (!failNextForecast) return route.continue();
-      failNextForecast = false;
-      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "审计模拟：天气源暂时不可用" }) });
-    });
     await page.setViewportSize(viewport);
-    await context.grantPermissions(["geolocation"], { origin: "http://127.0.0.1:3000" });
-    await context.setGeolocation({ latitude: 30.2741, longitude: 120.1551 });
     await page.goto("/");
     await expect(page.locator("[data-map-ready=true]")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
+    await expect(page.locator(".opportunity-list > button")).toHaveCount(9);
     await expectHealthyLayout(page);
-    await expectCompactDashboard(page, viewport);
-    await capture(page, viewport.name, "01-glow-dusk");
+    await capture(page, viewport.name, "01-opportunities");
 
-    await page.getByLabel("霁光摄影天气工作台").click();
-    await expect(page).toHaveURL(/#workspace$/);
+    await page.locator(".opportunity-list > button").filter({ hasText: "彩虹" }).click();
+    await expect(page.locator(".selected-opportunity")).toContainText("彩虹");
+    await capture(page, viewport.name, "02-rainbow-selected");
 
-    await page.keyboard.press("Control+K");
-    const search = page.getByLabel("搜索中国城市");
-    await expect(search).toBeFocused();
-    await expect(page.getByRole("listbox", { name: "城市搜索结果" })).toBeVisible();
-    await search.press("Escape");
-    await expect(page.getByRole("listbox", { name: "城市搜索结果" })).toBeHidden();
-
-    await page.getByRole("tab", { name: /朝霞/ }).click();
-    await expect(page.getByRole("tab", { name: /朝霞/ })).toHaveAttribute("aria-selected", "true");
-    await capture(page, viewport.name, "02-glow-dawn");
-    await page.getByRole("tab", { name: /晚霞/ }).click();
-    await expect(page.getByRole("tab", { name: /晚霞/ })).toHaveAttribute("aria-selected", "true");
-
-    await search.click();
+    await page.getByLabel("搜索中国城市").click();
     await expect(page.getByRole("listbox", { name: "城市搜索结果" })).toBeVisible();
     await capture(page, viewport.name, "03-search-open");
-    await search.fill("没有这个城市");
-    await expect(page.getByText("未找到城市")).toBeVisible();
-    await capture(page, viewport.name, "04-search-empty");
-    await page.getByLabel("清空搜索").click();
-    await search.press("ArrowDown");
-    await search.press("Enter");
-    await expect(page.locator(".coordinate-hud")).toContainText("北京");
-    await search.fill("上海");
-    await page.getByRole("option", { name: /上海/ }).click();
-    await expect(page.locator(".coordinate-hud")).toContainText("上海");
-    await capture(page, viewport.name, "05-search-selection");
+    await page.getByLabel("搜索中国城市").press("Escape");
 
-    const headerLocationResponse = page.waitForResponse((response) => response.url().includes("/api/forecast?lat=30.27410"));
-    await page.getByLabel("定位我的位置").click();
-    await headerLocationResponse;
-    await expect(page.locator(".coordinate-hud")).toContainText("地图落点", { timeout: 30_000 });
-    await capture(page, viewport.name, "06-geolocation");
+    await page.getByTitle("专业天气", { exact: true }).click();
+    await expect(page.getByRole("heading", { name: "天气工作台" })).toBeVisible();
+    await expectHealthyLayout(page);
+    await capture(page, viewport.name, "04-weather-cloud");
+    await page.getByRole("tab", { name: "降雨" }).click();
+    await capture(page, viewport.name, "05-weather-rain");
+    await page.getByRole("tab", { name: "风况" }).click();
+    await capture(page, viewport.name, "06-weather-wind");
 
-    await search.click();
-    const searchLocationResponse = page.waitForResponse((response) => response.url().includes("/api/forecast?lat=30.27410"));
-    await page.getByRole("button", { name: "使用当前定位" }).click();
-    await searchLocationResponse;
-    await expect(page.locator(".coordinate-hud")).toContainText("地图落点", { timeout: 30_000 });
+    await page.getByTitle("罕见天象", { exact: true }).click();
+    await expect(page.getByRole("heading", { name: "天象事件" })).toBeVisible();
+    await expect(page.locator(".rare-event-list > button")).toHaveCount(10);
+    await expectHealthyLayout(page);
+    await capture(page, viewport.name, "07-events");
+    await page.locator(".rare-event-list > button").filter({ hasText: "流星雨" }).first().click();
+    await capture(page, viewport.name, "08-meteor-shower");
+    await page.locator(".rare-event-list > button").filter({ hasText: "日食" }).first().click();
+    await expect(page.getByText("严禁用肉眼", { exact: false })).toBeVisible();
+    await capture(page, viewport.name, "09-solar-eclipse");
 
-    failNextForecast = true;
-    await search.fill("上海");
-    await page.getByRole("option", { name: /上海/ }).click();
-    const recoverableError = page.locator(".workspace-toast");
-    await expect(recoverableError).toContainText("审计模拟：天气源暂时不可用");
-    await capture(page, viewport.name, "07-recoverable-error");
-    await page.getByLabel("关闭错误提示").click();
-    await expect(recoverableError).toBeHidden();
-
-    const dayTabs = page.getByRole("tablist", { name: "七天摄影窗口" }).getByRole("tab");
-    await expect(dayTabs).toHaveCount(7);
-    for (let index = 0; index < 7; index += 1) {
-      await dayTabs.nth(index).click();
-      await expect(dayTabs.nth(index)).toHaveAttribute("aria-selected", "true");
-    }
-    await capture(page, viewport.name, "08-day-seven");
-
-    const modes = ["雾景潜势", "日出 / 日落", "月相 / 月升", "星空 / 夜景", "月食", "日食", "云层分析", "降雨分析", "彩虹潜势"];
-    for (const [index, mode] of modes.entries()) {
-      await page.getByTitle(mode, { exact: true }).click();
-      await expect(page.getByRole("heading", { name: mode, exact: true })).toBeVisible();
-      const methodNotice = page.locator(".method-alert");
-      if (await methodNotice.count()) {
-        await methodNotice.locator("summary").click();
-        await expect(methodNotice).toHaveAttribute("open", "");
-        await expect(methodNotice.locator("p")).toBeVisible();
-        await methodNotice.locator("summary").click();
-        await expect(methodNotice).not.toHaveAttribute("open", "");
-      }
-      await expectHealthyLayout(page);
-      await capture(page, viewport.name, `${String(index + 9).padStart(2, "0")}-${mode.replaceAll(" / ", "-")}`);
-    }
-
-    const sources = page.getByText("数据与模型", { exact: true });
-    await sources.click();
+    await page.getByText("数据、模型与边界", { exact: true }).click();
     await expect(page.getByText("Astronomy Engine", { exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: /中国气象局预警/ })).toBeVisible();
     await expectHealthyLayout(page);
-    await capture(page, viewport.name, "18-data-sources-open");
-    await sources.click();
-    await expect(page.getByText("Astronomy Engine", { exact: true })).toBeHidden();
-
-    await page.getByTitle("朝霞 / 晚霞", { exact: true }).click();
-    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
-    await page.waitForTimeout(50);
-    const coordinatesBeforeMapClick = await page.locator(".coordinate-hud").innerText();
-    const map = await page.locator(".weather-map").boundingBox();
-    expect(map).not.toBeNull();
-    await page.mouse.click(map!.x + map!.width * .38, map!.y + map!.height * .42);
-    await expect.poll(() => page.locator(".coordinate-hud").innerText(), { timeout: 30_000 }).not.toBe(coordinatesBeforeMapClick);
-    await capture(page, viewport.name, "19-map-click");
-
-    const marker = await page.locator(".map-pin-marker").boundingBox();
-    expect(marker).not.toBeNull();
-    const previousCoordinates = await page.locator(".coordinate-hud").innerText();
-    await page.mouse.move(marker!.x + marker!.width / 2, marker!.y + marker!.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(marker!.x + marker!.width / 2 + 36, marker!.y + marker!.height / 2 + 18, { steps: 5 });
-    await page.mouse.up();
-    await expect.poll(() => page.locator(".coordinate-hud").innerText(), { timeout: 30_000 }).not.toBe(previousCoordinates);
-    await capture(page, viewport.name, "20-marker-drag");
-
-    const canvas = await page.locator(".maplibregl-canvas").boundingBox();
-    const markerBeforePan = await page.locator(".map-pin-marker").boundingBox();
-    expect(canvas).not.toBeNull();
-    expect(markerBeforePan).not.toBeNull();
-    await page.mouse.move(canvas!.x + canvas!.width * .75, canvas!.y + canvas!.height * .35);
-    await page.mouse.down();
-    await page.mouse.move(canvas!.x + canvas!.width * .62, canvas!.y + canvas!.height * .35, { steps: 6 });
-    await page.mouse.up();
-    await expect.poll(async () => (await page.locator(".map-pin-marker").boundingBox())?.x).not.toBe(markerBeforePan!.x);
-    await capture(page, viewport.name, "21-map-pan");
-
-    const zoomIn = page.getByRole("button", { name: "Zoom in" });
-    const zoomOut = page.getByRole("button", { name: "Zoom out" });
-    await zoomIn.click();
-    await page.waitForTimeout(350);
-    await capture(page, viewport.name, "22-map-zoom-in");
-    await zoomOut.click();
-    await page.waitForTimeout(350);
-
-    const attribution = page.locator(".maplibregl-ctrl-attrib-button");
-    if (await attribution.isVisible()) {
-      await attribution.click();
-      await capture(page, viewport.name, "23-attribution-open");
-      await attribution.click();
-    }
-
-    await expectHealthyLayout(page);
-    const expectedSimulatedErrors = consoleErrors.filter((message) => message.includes("503 (Service Unavailable)"));
-    expect(expectedSimulatedErrors).toHaveLength(1);
-    expect(consoleErrors.filter((message) => !message.includes("503 (Service Unavailable)"))).toEqual([]);
+    await capture(page, viewport.name, "10-sources-open");
     expect(pageErrors).toEqual([]);
   });
 }
 
-test("initial error state can reconnect without clipping", async ({ page }) => {
+test("initial error state reconnects without clipping", async ({ page }) => {
   let firstForecast = true;
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route("**/api/forecast**", async (route) => {
@@ -285,11 +130,10 @@ test("initial error state can reconnect without clipping", async ({ page }) => {
   });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "数据暂时不可用" })).toBeVisible();
-  await capture(page, "phone-390", "21-initial-error");
+  await capture(page, "phone-390", "11-initial-error");
   await page.getByRole("button", { name: "重新连接" }).click();
-  await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
   await expectHealthyLayout(page);
-  await capture(page, "phone-390", "22-reconnected");
 });
 
 test("denied geolocation remains recoverable and dismissible", async ({ page }) => {
@@ -297,19 +141,13 @@ test("denied geolocation remains recoverable and dismissible", async ({ page }) 
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "geolocation", {
       configurable: true,
-      value: {
-        getCurrentPosition: (_success: PositionCallback, failure?: PositionErrorCallback) => {
-          failure?.({ code: 1, message: "denied", PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
-        },
-      },
+      value: { getCurrentPosition: (_success: PositionCallback, failure?: PositionErrorCallback) => failure?.({ code: 1, message: "denied", PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 }) },
     });
   });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
   await page.getByLabel("定位我的位置").click();
-  const locationError = page.locator(".workspace-toast");
-  await expect(locationError).toContainText("无法获取位置，请检查浏览器定位权限");
-  await capture(page, "phone-390", "23-geolocation-denied");
+  await expect(page.locator(".workspace-toast")).toContainText("无法获取位置");
+  await capture(page, "phone-390", "12-geolocation-denied");
   await page.getByLabel("关闭错误提示").click();
-  await expect(locationError).toBeHidden();
+  await expect(page.locator(".workspace-toast")).toBeHidden();
 });

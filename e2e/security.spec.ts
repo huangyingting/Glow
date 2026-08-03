@@ -20,7 +20,7 @@ test("production responses use nonce CSP and reject untrusted inline scripts", a
   expect(serverScriptNonces.length).toBeGreaterThan(0);
   expect(new Set(serverScriptNonces)).toEqual(new Set([nonce]));
 
-  await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
   const scriptNonces = await page.locator("script[nonce]").evaluateAll((scripts) => scripts.map((script) => (script as HTMLScriptElement).nonce));
   expect(scriptNonces.length).toBeGreaterThan(0);
   expect(new Set(scriptNonces)).toEqual(new Set([nonce]));

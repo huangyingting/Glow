@@ -24,7 +24,35 @@ export interface SkyMetrics {
 
 export type PhotographyMode = "glow" | "fog" | "sun" | "moon" | "stars" | "lunar-eclipse" | "solar-eclipse";
 export type WeatherAnalysisMode = "cloud" | "rain" | "rainbow";
-export type WorkspaceMode = PhotographyMode | WeatherAnalysisMode;
+export type WorkspaceMode = "opportunities" | "weather" | "events";
+export type WeatherView = "cloud" | "rain" | "wind";
+export type OpportunityKind = "dawn-glow" | "sunrise" | "fog" | "rainbow" | "sunset" | "dusk-glow" | "moon" | "stars" | "aurora";
+
+export interface MapAnnotation {
+  id: string;
+  label: string;
+  azimuth: number;
+  color: string;
+  dashed?: boolean;
+}
+
+export interface DailyOpportunity {
+  id: OpportunityKind;
+  kind: OpportunityKind;
+  title: string;
+  shortTitle: string;
+  start: string;
+  peak: string;
+  end: string;
+  score: number | null;
+  scoreType: "opportunity-index" | "geometry-only";
+  confidence: number | null;
+  status: "excellent" | "watch" | "poor" | "unavailable";
+  summary: string;
+  limitation: string;
+  direction: { azimuth: number; label: string } | null;
+  details: { label: string; value: string }[];
+}
 
 export interface HourlyWeatherPoint {
   time: string;
@@ -128,6 +156,22 @@ export interface EclipseForecast {
   visible: boolean;
 }
 
+export interface MeteorShowerForecast {
+  id: string;
+  name: string;
+  peak: string;
+  activeStart: string;
+  activeEnd: string;
+  peakPrecision: "night-range";
+  zenithalHourlyRate: number;
+  radiant: string;
+  radiantAltitude: number;
+  radiantAzimuth: number;
+  viewingAdvice: string;
+  moonIllumination: number;
+  source: string;
+}
+
 export interface MoonGeometry {
   calculatedAt: string;
   phaseAngle: number;
@@ -142,6 +186,26 @@ export interface MoonGeometry {
 export interface AstronomySummary {
   nextLunarEclipse: EclipseForecast;
   nextSolarEclipse: EclipseForecast;
+  meteorShowers: MeteorShowerForecast[];
+}
+
+export interface SpaceWeatherKpPoint {
+  time: string;
+  kp: number;
+  status: "observed" | "estimated" | "predicted";
+  scale: string | null;
+}
+
+export interface SpaceWeatherResponse {
+  status: "available" | "unavailable";
+  generatedAt: string;
+  validUntil: string | null;
+  source: {
+    name: "NOAA SWPC";
+    url: string;
+  };
+  points: SpaceWeatherKpPoint[];
+  message: string;
 }
 
 export interface NightWeatherMetrics {

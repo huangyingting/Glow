@@ -3,16 +3,13 @@
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent, Marker, StyleSpecification } from "maplibre-gl";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { City, WorkspaceMode } from "@/lib/types";
+import type { City, MapAnnotation, WorkspaceMode } from "@/lib/types";
 
 interface WeatherMapProps {
   location: City;
   mode: WorkspaceMode;
   score: number;
-  sunriseAzimuth: number | null;
-  sunsetAzimuth: number | null;
-  moonAzimuth: number | null;
-  eventAzimuth: number | null;
+  annotations: MapAnnotation[];
   onPick: (latitude: number, longitude: number) => Promise<boolean>;
 }
 
@@ -42,17 +39,6 @@ function destination(longitude: number, latitude: number, bearing: number, dista
   return [endLon * 180 / Math.PI, endLat * 180 / Math.PI];
 }
 
-function directionData(location: City, sunrise: number | null, sunset: number | null, moon: number | null, event: number | null) {
-  const origin = [location.longitude, location.latitude];
-  const features = [
-    sunrise === null ? null : { type: "Feature" as const, properties: { kind: "sunrise" }, geometry: { type: "LineString" as const, coordinates: [origin, destination(location.longitude, location.latitude, sunrise)] } },
-    sunset === null ? null : { type: "Feature" as const, properties: { kind: "sunset" }, geometry: { type: "LineString" as const, coordinates: [origin, destination(location.longitude, location.latitude, sunset)] } },
-    moon === null ? null : { type: "Feature" as const, properties: { kind: "moon" }, geometry: { type: "LineString" as const, coordinates: [origin, destination(location.longitude, location.latitude, moon)] } },
-    event === null ? null : { type: "Feature" as const, properties: { kind: "event" }, geometry: { type: "LineString" as const, coordinates: [origin, destination(location.longitude, location.latitude, event)] } },
-  ].filter((item) => item !== null);
-  return { type: "FeatureCollection" as const, features };
-}
-
 function pointData(location: City, score: number, mode: WorkspaceMode) {
   return {
     type: "FeatureCollection" as const,
@@ -64,15 +50,15 @@ function pointData(location: City, score: number, mode: WorkspaceMode) {
   };
 }
 
-export default function WeatherMap({ location, mode, score, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth, onPick }: WeatherMapProps) {
+export default function WeatherMap({ location, mode, score, annotations, onPick }: WeatherMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const directionOverlayRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const dragOriginRef = useRef<{ lng: number; lat: number } | null>(null);
   const pickRef = useRef(onPick);
-  const initialRef = useRef({ location, mode, score, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth });
-  const directionRef = useRef({ location, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth });
+  const initialRef = useRef({ location, mode, score });
+  const directionRef = useRef({ location, annotations });
   const [ready, setReady] = useState(false);
   const [warning, setWarning] = useState(false);
 
@@ -83,11 +69,11 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
     if (!overlay) return;
     const current = directionRef.current;
     const origin = map.project([current.location.longitude, current.location.latitude]);
-    const values = { sunrise: current.sunriseAzimuth, sunset: current.sunsetAzimuth, moon: current.moonAzimuth, event: current.eventAzimuth };
-    Object.entries(values).forEach(([kind, bearing]) => {
-      const line = overlay.querySelector<HTMLElement>(`[data-kind="${kind}"]`);
-      if (!line || bearing === null) return;
-      const target = destination(current.location.longitude, current.location.latitude, bearing);
+    current.annotations.forEach((annotation) => {
+      const line = overlay.querySelector<HTMLElement>(`i[data-annotation="${annotation.id}"]`);
+      const label = overlay.querySelector<HTMLElement>(`span[data-annotation="${annotation.id}"]`);
+      if (!line || !label) return;
+      const target = destination(current.location.longitude, current.location.latitude, annotation.azimuth);
       const end = map.project(target as [number, number]);
       const dx = end.x - origin.x;
       const dy = end.y - origin.y;
@@ -95,6 +81,10 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
       line.style.top = `${origin.y}px`;
       line.style.width = `${Math.hypot(dx, dy)}px`;
       line.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+      line.style.borderColor = annotation.color;
+      label.style.left = `${origin.x + dx * .78}px`;
+      label.style.top = `${origin.y + dy * .78}px`;
+      label.style.borderColor = annotation.color;
     });
   }, []);
 
@@ -165,18 +155,6 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
           "circle-blur": .55,
         },
       });
-      map.addSource("photo-directions", { type: "geojson", data: directionData(initial.location, initial.sunriseAzimuth, initial.sunsetAzimuth, initial.moonAzimuth, initial.eventAzimuth) });
-      map.addLayer({
-        id: "photo-directions",
-        type: "line",
-        source: "photo-directions",
-        paint: {
-          "line-color": ["match", ["get", "kind"], "sunrise", "#f4b55f", "sunset", "#ed755d", "moon", "#8171b6", "#d97735"],
-          "line-width": 2,
-          "line-opacity": .86,
-          "line-dasharray": [2, 2],
-        },
-      });
       setReady(true);
       window.requestAnimationFrame(() => positionDirectionOverlay(map));
     });
@@ -189,7 +167,7 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
   }, [positionDirectionOverlay]);
 
   useEffect(() => {
-    directionRef.current = { location, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth };
+    directionRef.current = { location, annotations };
     const map = mapRef.current;
     const marker = markerRef.current;
     if (!map || !marker) return;
@@ -201,19 +179,20 @@ export default function WeatherMap({ location, mode, score, sunriseAzimuth, suns
       map.once("moveend", () => containerRef.current?.classList.remove("map-moving"));
     }
     (map.getSource("forecast-point") as GeoJSONSource | undefined)?.setData(pointData(location, score, mode));
-    (map.getSource("photo-directions") as GeoJSONSource | undefined)?.setData(directionData(location, sunriseAzimuth, sunsetAzimuth, moonAzimuth, eventAzimuth));
     marker.getElement().style.setProperty("--pin-score", `${score}%`);
     marker.getElement().dataset.mode = mode;
     window.requestAnimationFrame(() => positionDirectionOverlay(map));
-  }, [eventAzimuth, location, mode, moonAzimuth, positionDirectionOverlay, score, sunriseAzimuth, sunsetAzimuth]);
+  }, [annotations, location, mode, positionDirectionOverlay, score]);
 
   return (
-    <div className="weather-map" ref={containerRef} data-map-ready={ready ? "true" : "false"} aria-label="可点击和拖动定位点的中国天气地图">
+    <div className="weather-map" ref={containerRef} data-map-ready={ready ? "true" : "false"} role="region" aria-label="可点击和拖动定位点的中国天气地图">
       <div className="map-direction-overlay" ref={directionOverlayRef} aria-hidden="true">
-        {sunriseAzimuth !== null && <i data-kind="sunrise" />}
-        {sunsetAzimuth !== null && <i data-kind="sunset" />}
-        {moonAzimuth !== null && <i data-kind="moon" />}
-        {eventAzimuth !== null && <i data-kind="event" />}
+        {annotations.map((annotation) => (
+          <span className="map-bearing" key={annotation.id}>
+            <i data-annotation={annotation.id} data-dashed={annotation.dashed ? "true" : undefined} />
+            <span data-annotation={annotation.id}>{annotation.label}</span>
+          </span>
+        ))}
       </div>
       {!ready && <div className="map-loading"><span /><p>正在绘制地理底图</p></div>}
       {warning && <div className="map-warning">部分底图瓦片暂不可用，定位与预测仍可使用</div>}

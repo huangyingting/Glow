@@ -12,6 +12,9 @@ describe("location-aware astronomy", () => {
     expect(result.nextSolarEclipse.visible).toBe(true);
     expect(result.nextSolarEclipse.azimuth).toBeGreaterThanOrEqual(0);
     expect(result.nextLunarEclipse.visible).toBe(true);
+    expect(result.meteorShowers).toHaveLength(8);
+    expect(result.meteorShowers[0].peakPrecision).toBe("night-range");
+    expect(result.meteorShowers[0].radiantAzimuth).toBeGreaterThanOrEqual(0);
   });
 
   it("calculates moon geometry for the selected forecast night", () => {

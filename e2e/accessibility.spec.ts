@@ -10,21 +10,26 @@ for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
   { name: "mobile", width: 390, height: 844 },
 ]) {
-  test(`all workspace tools meet automated accessibility checks on ${viewport.name}`, async ({ page }) => {
+  test(`all three workspaces meet automated accessibility checks on ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "朝霞 / 晚霞" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
     await page.keyboard.press("Tab");
     await expect(page.getByRole("link", { name: "跳到摄影工作区" })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page.locator("#workspace")).toBeFocused();
-    await expectAccessible(page, `${viewport.name} glow`);
+    await expectAccessible(page, `${viewport.name} opportunities`);
 
-    for (const scene of ["雾景潜势", "日出 / 日落", "月相 / 月升", "星空 / 夜景", "月食", "日食", "云层分析", "降雨分析", "彩虹潜势"]) {
-      await page.getByTitle(scene, { exact: true }).click();
-      await expect(page.getByRole("heading", { name: scene, exact: true })).toBeVisible();
-      await expectAccessible(page, `${viewport.name} ${scene}`);
+    await page.getByTitle("专业天气", { exact: true }).click();
+    await expect(page.getByRole("heading", { name: "天气工作台" })).toBeVisible();
+    for (const detail of ["云层", "降雨", "风况"]) {
+      await page.getByRole("tab", { name: detail }).click();
+      await expectAccessible(page, `${viewport.name} weather ${detail}`);
     }
+
+    await page.getByTitle("罕见天象", { exact: true }).click();
+    await expect(page.getByRole("heading", { name: "天象事件" })).toBeVisible();
+    await expectAccessible(page, `${viewport.name} events`);
 
     await page.getByLabel("搜索中国城市").click();
     await expect(page.getByRole("listbox", { name: "城市搜索结果" })).toBeVisible();
