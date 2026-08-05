@@ -136,7 +136,7 @@ test("mobile keeps three workspaces, map timeline, and panels free of horizontal
   await expect(page.locator("[data-map-ready=true]")).toBeVisible();
   await expect(page.getByRole("navigation", { name: "工作区" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "每日拍摄机会" })).toBeVisible();
-  await expect(page.locator(".map-stage")).toHaveCSS("height", "545px");
+  await expect(page.locator(".map-stage")).toHaveCSS("height", "380px");
   for (const workspace of ["专业天气", "罕见天象", "每日拍摄机会"]) {
     await page.getByTitle(workspace, { exact: true }).click();
     await expect(page.locator(".photo-workspace")).toHaveAttribute("data-workspace", workspace === "专业天气" ? "weather" : workspace === "罕见天象" ? "events" : "opportunities");

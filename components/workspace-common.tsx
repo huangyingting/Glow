@@ -1,7 +1,8 @@
 "use client";
 
 import { ChevronDown, Cloud, Database, Droplets, Eye, Gauge, Navigation, Thermometer, Wind } from "lucide-react";
-import type { ForecastResponse, HourlyWeatherPoint } from "@/lib/types";
+import type { LucideIcon } from "lucide-react";
+import type { DayForecast, ForecastResponse, HourlyWeatherPoint } from "@/lib/types";
 
 export function forecastInstant(value: string) {
   return new Date(value.endsWith("Z") ? value : `${value}:00+08:00`).getTime();
@@ -35,6 +36,52 @@ export function closestHour(hourly: HourlyWeatherPoint[], target: string) {
   return point && Math.abs(forecastInstant(point.time) - targetTime) <= 90 * 60 * 1000 ? point : null;
 }
 
+export function minuteOfDay(value: string) {
+  const parts = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).formatToParts(new Date(forecastInstant(value)));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0) % 24;
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+/** Workspace title block. Owns the page `h1`, so the catalog rail names the whole workspace. */
+export function CatalogHead({ icon: Icon, eyebrow, title, badge }: { icon: LucideIcon; eyebrow: string; title: string; badge: string }) {
+  return (
+    <header className="catalog-head">
+      <div className="scene-title">
+        <span aria-hidden="true"><Icon size={16} /></span>
+        <div><small>{eyebrow}</small><h1>{title}</h1></div>
+      </div>
+      <span className="catalog-badge">{badge}</span>
+    </header>
+  );
+}
+
+export function PanelCard({ icon: Icon, title, meta, className, label, children }: {
+  icon?: LucideIcon;
+  title: string;
+  meta?: string;
+  className?: string;
+  label?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`panel-card${className ? ` ${className}` : ""}`} aria-label={label ?? title}>
+      <header><span>{Icon && <Icon size={14} />}{title}</span>{meta && <small>{meta}</small>}</header>
+      {children}
+    </section>
+  );
+}
+
+export function ScoreDial({ percent, primary, caption, tone, label }: { percent: number; primary: string; caption: string; tone: string; label: string }) {
+  const bounded = Math.max(0, Math.min(100, percent));
+  return (
+    <div className={`score-dial tone-${tone}`} style={{ "--score": `${bounded * 3.6}deg` } as React.CSSProperties} role="img" aria-label={label}>
+      <div><strong>{primary}</strong><small>{caption}</small></div>
+    </div>
+  );
+}
+
+/** Seven forecast days, rendered as the primary axis of the timeline dock. */
 export function DateTabs({ data, selected, onSelect, label = "选择预报日期" }: { data: ForecastResponse; selected: number; onSelect: (index: number) => void; label?: string }) {
   const move = (index: number, key: string) => {
     const next = key === "ArrowRight" ? (index + 1) % data.days.length
@@ -74,13 +121,25 @@ export function DateTabs({ data, selected, onSelect, label = "选择预报日期
   );
 }
 
+/** Right-hand dock segment: the light budget of the selected day. */
+export function DockAstro({ day }: { day: DayForecast }) {
+  const darkness = Math.round(day.solar.astronomicalDarknessMinutes / 60);
+  return (
+    <div className="dock-astro" aria-label="所选日期的光线预算">
+      <span><small>日出</small><strong>{localTime(day.sunrise)}</strong></span>
+      <span><small>日落</small><strong>{localTime(day.sunset)}</strong></span>
+      <span><small>天文暗夜</small><strong>{darkness} h</strong></span>
+      <span><small>月相照明</small><strong>{Math.round(day.moon.illumination)}%</strong></span>
+    </div>
+  );
+}
+
 export function FieldBriefing({ point, label, elevation }: { point: HourlyWeatherPoint | null; label: string; elevation: number | null }) {
   if (!point) return <p className="field-unavailable">{label}超出七天天气时效，暂不附加现场条件。</p>;
   const dewGap = point.temperature !== null && point.dewPoint !== null ? point.temperature - point.dewPoint : null;
   return (
-    <section className="field-briefing workspace-card" aria-label={`${label}现场条件`}>
-      <header><span><Gauge size={15} /> {label}现场条件</span><small>{localTime(point.time)}</small></header>
-      <div>
+    <PanelCard icon={Gauge} title={`${label}现场条件`} meta={localTime(point.time)} className="field-briefing" label={`${label}现场条件`}>
+      <div className="metric-grid">
         <span><Thermometer /><small>气温 / 露点差</small><strong>{point.temperature?.toFixed(0) ?? "—"}° / {dewGap?.toFixed(1) ?? "—"}°</strong></span>
         <span><Wind /><small>持续 / 阵风</small><strong>{point.windSpeed?.toFixed(0) ?? "—"} / {point.windGusts?.toFixed(0) ?? "—"} km/h</strong></span>
         <span><Navigation /><small>来风方向</small><strong>{compass(point.windDirection)}</strong></span>
@@ -88,8 +147,8 @@ export function FieldBriefing({ point, label, elevation }: { point: HourlyWeathe
         <span><Cloud /><small>总云量</small><strong>{point.totalCloud === null ? "—" : `${Math.round(point.totalCloud)}%`}</strong></span>
         <span><Droplets /><small>降水</small><strong>{point.precipitation === null ? "—" : `${point.precipitation.toFixed(1)} mm`}</strong></span>
       </div>
-      <p>海拔 {elevation === null ? "—" : `${Math.round(elevation)} m`} · 露点差接近 0°C 时注意镜片结露，阵风会影响长焦与脚架稳定。</p>
-    </section>
+      <p className="card-note">海拔 {elevation === null ? "—" : `${Math.round(elevation)} m`} · 露点差接近 0°C 时注意镜片结露，阵风会影响长焦与脚架稳定。</p>
+    </PanelCard>
   );
 }
 
@@ -107,4 +166,3 @@ export function SourceDisclosure({ data, includeSpaceWeather = false }: { data: 
     </details>
   );
 }
-

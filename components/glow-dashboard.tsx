@@ -1,13 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { AlertTriangle, CalendarDays, Check, CloudSun, Clock3, Crosshair, Database, Eye, LocateFixed, MapPin, RefreshCw, Search, Sparkles, Thermometer, Wind, X } from "lucide-react";
+import { AlertTriangle, CalendarDays, Check, CloudSun, Crosshair, Database, LocateFixed, MapPin, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/brand-mark";
-import { EventsPanel, EventsTimeline, buildRareEvents, type RareEvent } from "@/components/events-workspace";
-import { OpportunityPanel, OpportunityTimeline } from "@/components/opportunity-workspace";
-import { WeatherPanel, WeatherTimeline } from "@/components/weather-workspace";
+import { EventsCatalog, EventsDock, EventsPanel, buildRareEvents, type RareEvent } from "@/components/events-workspace";
+import { OpportunityCatalog, OpportunityDock, OpportunityPanel } from "@/components/opportunity-workspace";
+import { WeatherCatalog, WeatherDock, WeatherPanel } from "@/components/weather-workspace";
 import { closestHour, compass, forecastInstant, localTime } from "@/components/workspace-common";
 import { CITIES } from "@/lib/cities";
 import { buildDailyOpportunities } from "@/lib/opportunities";
@@ -31,7 +31,7 @@ interface WorkspaceDefinition {
 const WORKSPACES: WorkspaceDefinition[] = [
   { id: "opportunities", label: "每日拍摄机会", shortLabel: "每日机会", description: "同一天的霞光、雾、日月、星空、彩虹与极光", icon: Sparkles },
   { id: "weather", label: "专业天气", shortLabel: "天气", description: "逐小时云层、降雨与风况", icon: CloudSun },
-  { id: "events", label: "罕见天象", shortLabel: "天象事件", description: "日食、月食与流星雨日历", icon: CalendarDays },
+  { id: "events", label: "罕见天象", shortLabel: "天象", description: "日食、月食与流星雨日历", icon: CalendarDays },
 ];
 
 function LocationSearch({ current, onSelect, onLocate }: { current: City; onSelect: (city: City) => void; onLocate: () => void }) {
@@ -98,7 +98,7 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
   return (
     <div className="workspace-location" ref={rootRef}>
       <div className="workspace-search">
-        <Search size={16} />
+        <Search size={15} />
         <input
           ref={inputRef}
           role="combobox"
@@ -117,8 +117,8 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
       </div>
       {open && (
         <div className="workspace-results">
+          <div className="results-caption"><span>常用观测地</span><small>{filtered.length} 个结果</small></div>
           <div id="city-search-results" className="results-listbox" role="listbox" aria-label="城市搜索结果">
-            <div className="results-caption"><span>常用观测地</span><small>{filtered.length} 个结果</small></div>
             {filtered.map((city, index) => (
               <button
                 key={city.id}
@@ -135,8 +135,8 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
                 {current.id === city.id && <Check size={14} />}
               </button>
             ))}
-            {!filtered.length && <p>未找到城市，可直接在地图上点击任意中国天气区域内的位置。</p>}
           </div>
+          {!filtered.length && <p className="results-empty">未找到城市，可直接在地图上点击任意中国天气区域内的位置。</p>}
           <button className="result-locate" type="button" onClick={() => { onLocate(); setOpen(false); setActiveIndex(-1); }}><LocateFixed size={15} /> 使用当前定位</button>
         </div>
       )}
@@ -144,24 +144,36 @@ function LocationSearch({ current, onSelect, onLocate }: { current: City; onSele
   );
 }
 
-function WorkspaceNavigation({ active, onChange, sources }: { active: WorkspaceMode; onChange: (mode: WorkspaceMode) => void; sources?: ForecastResponse["sources"] }) {
-  const available = sources?.filter((source) => source.status === "available").length ?? 0;
-  const healthLabel = sources ? `${available}/${sources.length} 个天气数据源在线` : "天气数据加载中";
+function WorkspaceNavigation({ active, onChange }: { active: WorkspaceMode; onChange: (mode: WorkspaceMode) => void }) {
   return (
-    <nav className="mode-rail workspace-navigation" aria-label="工作区">
-      <span className="rail-label">PHOTO PLANNER</span>
-      {WORKSPACES.map((workspace, index) => {
+    <nav className="workspace-navigation" aria-label="工作区">
+      {WORKSPACES.map((workspace) => {
         const Icon = workspace.icon;
         return (
-          <button type="button" key={workspace.id} aria-label={workspace.label} aria-current={active === workspace.id ? "page" : undefined} onClick={() => onChange(workspace.id)} title={workspace.label}>
-            <span className="mode-index">0{index + 1}</span><Icon size={20} /><strong>{workspace.shortLabel}</strong>
+          <button
+            type="button"
+            key={workspace.id}
+            aria-label={workspace.label}
+            aria-current={active === workspace.id ? "page" : undefined}
+            onClick={() => onChange(workspace.id)}
+            title={workspace.label}
+          >
+            <Icon size={16} /><strong>{workspace.shortLabel}</strong>
             <span className="mode-tooltip" aria-hidden="true"><b>{workspace.label}</b><small>{workspace.description}</small></span>
           </button>
         );
       })}
-      <div className="rail-spacer" />
-      <div className="rail-data" role="status" aria-label={healthLabel} title={healthLabel} data-state={!sources ? "loading" : available === sources.length ? "healthy" : "degraded"}><Database size={18} /><i /></div>
     </nav>
+  );
+}
+
+function SourceHealth({ sources }: { sources?: ForecastResponse["sources"] }) {
+  const available = sources?.filter((source) => source.status === "available").length ?? 0;
+  const label = sources ? `${available}/${sources.length} 个天气数据源在线` : "天气数据加载中";
+  return (
+    <span className="header-health" role="status" title={label} data-state={!sources ? "loading" : available === sources.length ? "healthy" : "degraded"}>
+      <Database size={13} /><i aria-hidden="true" />{sources ? `${available}/${sources.length} 数据源` : "连接中"}
+    </span>
   );
 }
 
@@ -310,19 +322,20 @@ export function GlowDashboard() {
   const mapFieldPoint = workspace === "weather" ? selectedWeather
     : workspace === "opportunities" && data ? closestHour(data.hourly, new Date(selectedInstant).toISOString())
       : workspace === "events" && data && selectedEvent ? closestHour(data.hourly, selectedEvent.peak) : null;
-  const activeTimeLabel = workspace === "weather" ? "所选天气"
-    : workspace === "events" ? "天象峰值"
-      : selectedOpportunity?.shortTitle ?? "拍摄窗口";
   const score = mapScore(workspace, selectedOpportunity, selectedWeather, weatherView, selectedEvent);
+  const ready = Boolean(data && day && selectedOpportunity && selectedWeather && selectedEvent);
 
   return (
     <main className="photo-workspace" data-workspace={workspace}>
       <a className="skip-link" href="#workspace">跳到摄影工作区</a>
+
       <header className="workspace-header">
-        <a className="workspace-brand" href="#workspace" aria-label="霁光摄影天气工作台"><BrandMark /><span className="product-edition">PRO</span></a>
+        <div className="workspace-brand"><BrandMark /><span className="product-edition">PRO</span></div>
+        <WorkspaceNavigation active={workspace} onChange={setWorkspace} />
         <LocationSearch current={current} onSelect={(city) => { void loadForecast(`/api/forecast?city=${city.id}`); }} onLocate={locate} />
         <div className="header-status">
           <span className="sr-only" role="status" aria-live="polite">{status === "loading" ? "正在加载天气数据" : status === "updating" ? "正在刷新当前预测" : status === "error" ? "天气数据加载失败" : "预测已更新"}</span>
+          <SourceHealth sources={data?.sources} />
           <button
             type="button"
             className={`refresh-forecast ${status === "updating" ? "syncing" : ""}`}
@@ -330,44 +343,68 @@ export function GlowDashboard() {
             disabled={status === "loading" || status === "updating"}
             aria-label="刷新当前预测"
           ><RefreshCw size={14} /><span>{status === "updating" ? "刷新中" : "刷新预测"}</span></button>
-          <button type="button" onClick={locate} aria-label="定位我的位置"><Crosshair size={17} /></button>
+          <button type="button" className="icon-button" onClick={locate} aria-label="定位我的位置"><Crosshair size={16} /></button>
         </div>
       </header>
 
       <div className="workspace-body" id="workspace" tabIndex={-1}>
-        <WorkspaceNavigation active={workspace} onChange={setWorkspace} sources={data?.sources} />
+        {ready && data && day && selectedOpportunity && selectedWeather && selectedEvent ? (
+          workspace === "opportunities" ? <OpportunityCatalog opportunities={opportunities} selectedId={selectedOpportunity.id} onSelect={selectOpportunity} />
+            : workspace === "weather" ? <WeatherCatalog day={day} hours={dayHours} selectedTime={selectedWeather.time} onHour={(point) => setWeatherTime(point.time)} />
+              : <EventsCatalog data={data} events={events} selectedId={selectedEvent.id} onSelect={selectEvent} />
+        ) : (
+          <section className="catalog-rail catalog-loading" aria-label="工作区加载中">
+            <div className="loading-heading"><span /><div><i /><b /></div></div>
+            <div className="loading-block" /><div className="loading-block short" />
+          </section>
+        )}
+
         <section className="map-stage">
           <WeatherMap location={current} mode={workspace} score={score} annotations={annotations} onPick={pickCoordinate} />
-          <div className="map-instruction"><MapPin size={15} /><span><strong>单击地图放置观测点</strong><small>或拖动标记精确调整</small></span></div>
-          {annotations.length > 0 && <div className="map-direction-legend"><span style={{ "--legend-color": annotations[0].color } as React.CSSProperties}>{annotations[0].label}</span><small>辅助线只表示方位，长度不表示距离</small></div>}
           <div className="coordinate-hud">
-            <span><i /> {current.name}</span><strong>{current.latitude.toFixed(4)}°N</strong><strong>{current.longitude.toFixed(4)}°E</strong><small>WGS 84</small>
+            <span><i />{current.name}</span>
+            <strong>{current.latitude.toFixed(4)}°N</strong>
+            <strong>{current.longitude.toFixed(4)}°E</strong>
+            <small>WGS 84 · 点击地图或拖动标记改变观测点</small>
           </div>
-          {mapFieldPoint && (
-            <div className="map-weather-strip">
-              <span><Clock3 />{localTime(mapFieldPoint.time)}<small>{activeTimeLabel}</small></span>
-              <span><Thermometer />{mapFieldPoint.temperature?.toFixed(0) ?? "—"}°<small>露点 {mapFieldPoint.dewPoint?.toFixed(0) ?? "—"}°</small></span>
-              <span><Wind />{mapFieldPoint.windSpeed?.toFixed(0) ?? "—"}<small>阵风 {mapFieldPoint.windGusts?.toFixed(0) ?? "—"} km/h</small></span>
-              <span><Eye />{mapFieldPoint.visibility === null ? "—" : Math.round(mapFieldPoint.visibility / 1000)}<small>km 能见度</small></span>
+          {annotations.length > 0 && (
+            <div className="map-direction-legend">
+              <span style={{ "--legend-color": annotations[0].color } as React.CSSProperties}>{annotations[0].label}</span>
+              <small>辅助线只表示方位，长度不表示距离</small>
             </div>
           )}
-          {data && day && workspace === "opportunities" && selectedOpportunity && <OpportunityTimeline data={data} day={day} dayIndex={selectedIndex} opportunities={opportunities} selectedId={selectedOpportunity.id} selectedInstant={selectedInstant} onDay={selectDay} onOpportunity={selectOpportunity} onInstant={setSelectedInstant} />}
-          {data && day && selectedWeather && workspace === "weather" && <WeatherTimeline data={data} day={day} dayIndex={selectedIndex} hours={dayHours} selectedTime={selectedWeather.time} onDay={selectDay} onHour={(point) => setWeatherTime(point.time)} />}
-          {data && workspace === "events" && selectedEvent && <EventsTimeline data={data} events={events} selectedId={selectedEvent.id} onSelect={selectEvent} />}
+          {mapFieldPoint && (
+            <div className="map-scale-readout" aria-hidden="true">
+              <b>{localTime(mapFieldPoint.time)}</b>
+              <span>{mapFieldPoint.temperature?.toFixed(0) ?? "—"}°</span>
+              <span>云 {mapFieldPoint.totalCloud === null ? "—" : `${Math.round(mapFieldPoint.totalCloud)}%`}</span>
+              <span>{mapFieldPoint.windSpeed?.toFixed(0) ?? "—"} km/h</span>
+            </div>
+          )}
           {status === "updating" && <div className="map-recalculating"><RefreshCw />正在为新落点重算 168 小时数据</div>}
         </section>
 
-        {data && day && selectedOpportunity && selectedWeather && selectedEvent ? (
+        {ready && data && day && selectedOpportunity && selectedWeather && selectedEvent ? (
           workspace === "opportunities" ? <OpportunityPanel data={data} opportunities={opportunities} selectedId={selectedOpportunity.id} selectedInstant={selectedInstant} onSelect={selectOpportunity} />
             : workspace === "weather" ? <WeatherPanel data={data} point={selectedWeather} hours={dayHours} view={weatherView} onView={setWeatherView} />
               : <EventsPanel data={data} events={events} selectedId={selectedEvent.id} onSelect={selectEvent} />
         ) : (
-          <aside className="inspector inspector-loading">
-            <div className="loading-heading"><span /><div><i /><b /></div></div><div className="loading-score" /><div className="loading-block" /><div className="loading-block short" />
+          <aside className="inspector inspector-loading" aria-label="详情加载中">
+            <div className="loading-heading"><span /><div><i /><b /></div></div>
+            <div className="loading-score" /><div className="loading-block" /><div className="loading-block short" />
             {status === "error" && <div className="workspace-error"><AlertTriangle /><h1>数据暂时不可用</h1><p>{error}</p><button type="button" onClick={() => { void loadForecast(currentUrlRef.current); }}>重新连接</button></div>}
           </aside>
         )}
       </div>
+
+      {ready && data && day && selectedOpportunity && selectedWeather && selectedEvent ? (
+        workspace === "opportunities" ? <OpportunityDock data={data} day={day} dayIndex={selectedIndex} opportunities={opportunities} selectedId={selectedOpportunity.id} selectedInstant={selectedInstant} onDay={selectDay} onOpportunity={selectOpportunity} onInstant={setSelectedInstant} />
+          : workspace === "weather" ? <WeatherDock data={data} day={day} dayIndex={selectedIndex} hours={dayHours} selectedTime={selectedWeather.time} onDay={selectDay} />
+            : <EventsDock data={data} events={events} selectedId={selectedEvent.id} onSelect={selectEvent} />
+      ) : (
+        <div className="planner-timeline dock-loading" aria-hidden="true"><span /><span /></div>
+      )}
+
       <span className="sr-only" role="status" aria-live="polite">当前工作区 {WORKSPACES.find((item) => item.id === workspace)?.label}，地点 {current.name}</span>
       {error && data && <div className="workspace-toast" role="alert"><AlertTriangle size={16} /><span>{error}</span><button type="button" aria-label="关闭错误提示" onClick={() => setError(null)}><X size={14} /></button></div>}
     </main>

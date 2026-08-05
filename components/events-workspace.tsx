@@ -1,8 +1,8 @@
 "use client";
 
-import { AlertTriangle, CalendarDays, Eclipse, MoonStar, Orbit, Sparkles, Telescope } from "lucide-react";
+import { AlertTriangle, CalendarDays, Eclipse, Orbit, Sparkles, Telescope } from "lucide-react";
 import type { EclipseForecast, ForecastResponse, MeteorShowerForecast } from "@/lib/types";
-import { FieldBriefing, SourceDisclosure, closestHour, compass, forecastInstant, localDate, longDateTime } from "@/components/workspace-common";
+import { CatalogHead, FieldBriefing, SourceDisclosure, closestHour, compass, forecastInstant, localDate, longDateTime } from "@/components/workspace-common";
 
 export interface RareEvent {
   id: string;
@@ -92,17 +92,78 @@ function dateKey(value: string) {
   return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(forecastInstant(value)));
 }
 
-export function EventsTimeline({ data, events, selectedId, onSelect }: { data: ForecastResponse; events: RareEvent[]; selectedId: string; onSelect: (event: RareEvent) => void }) {
+/** Axis ticks can span several years, so they always carry the year — `8/5` alone would read as a date in the past. */
+function axisDate(value: string) {
+  return new Intl.DateTimeFormat("zh-CN", { year: "2-digit", month: "numeric", day: "numeric", timeZone: "Asia/Shanghai" }).format(new Date(forecastInstant(value)));
+}
+
+function EventIcon({ kind }: { kind: RareEvent["kind"] }) {
+  if (kind === "meteor-shower") return <Sparkles />;
+  if (kind === "lunar-eclipse") return <Orbit />;
+  return <Eclipse />;
+}
+
+/** Left rail: every upcoming event ranked by date, so nothing is hidden behind a horizontal scroll. */
+export function EventsCatalog({ data, events, selectedId, onSelect }: { data: ForecastResponse; events: RareEvent[]; selectedId: string; onSelect: (event: RareEvent) => void }) {
+  const soon = events.filter((event) => daysAway(data, event) <= 30).length;
   return (
-    <div className="planner-timeline events-timeline" aria-label="未来天象事件时间线">
-      <div className="events-timeline-label"><span>NEXT EVENTS</span><strong>未来天象</strong></div>
-      <div className="event-strip" role="listbox" aria-label="按日期排序的天象事件">
-        {events.map((event) => (
-          <button key={event.id} type="button" role="option" aria-selected={selectedId === event.id} onClick={() => onSelect(event)}>
-            {event.kind === "meteor-shower" ? <Sparkles /> : event.kind === "lunar-eclipse" ? <MoonStar /> : <Eclipse />}
-            <span><small>{localDate(event.peak)}</small><strong>{event.title}</strong><em>{daysAway(data, event)} 天后</em></span>
-          </button>
-        ))}
+    <section className="catalog-rail" aria-label="罕见天象列表">
+      <CatalogHead icon={Telescope} eyebrow="CELESTIAL CALENDAR" title="天象事件" badge={`${events.length} 个事件`} />
+      <div className="catalog-scroll">
+        <p className="catalog-summary">
+          <strong>远期看几何，临近再看天气</strong>
+          <span>{soon ? `${soon} 个事件在 30 天内` : "30 天内没有事件"}。流星雨峰值按夜间范围表达，不伪装成分钟级确定时刻。</span>
+        </p>
+        <div className="rare-event-list" aria-label="按峰值日期排序的天象事件">
+          {events.map((event) => (
+            <button type="button" key={event.id} aria-pressed={selectedId === event.id} data-kind={event.kind} onClick={() => onSelect(event)}>
+              <span className="event-icon"><EventIcon kind={event.kind} /></span>
+              <span className="event-copy"><strong>{event.title}</strong><small>{localDate(event.peak)} · {daysAway(data, event)} 天后</small></span>
+              <em>{event.metric}</em>
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Bottom dock: a square-root compressed axis from today to the furthest event, so the near term is readable. */
+export function EventsDock({ data, events, selectedId, onSelect }: { data: ForecastResponse; events: RareEvent[]; selectedId: string; onSelect: (event: RareEvent) => void }) {
+  const selected = events.find((event) => event.id === selectedId) ?? events[0];
+  const origin = forecastInstant(data.generatedAt);
+  const horizon = Math.max(origin + 86_400_000, ...events.map((event) => forecastInstant(event.peak)));
+  const span = horizon - origin;
+  /** Eclipses can sit years out while showers sit weeks out; a linear axis would collapse the near term into a few pixels. */
+  const position = (value: string) => Math.sqrt(Math.max(0, forecastInstant(value) - origin) / span) * 100;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => ({ ratio, at: new Date(origin + span * ratio * ratio).toISOString() }));
+  return (
+    <div className="planner-timeline events-dock" aria-label="未来天象事件时间线，按时间平方根压缩，近期事件间距更大">
+      <div className="dock-lead">
+        <span className="dock-eyebrow"><CalendarDays size={12} /> {selected.metricLabel}</span>
+        <strong>{selected.metric}</strong>
+        <small>{selected.title} · {daysAway(data, selected)} 天后</small>
+      </div>
+      <div className="dock-main">
+        <div className="event-axis">
+          <div className="axis-track">
+            <span className="axis-rule" aria-hidden="true" />
+            {ticks.map((tick) => <small key={tick.ratio} className="axis-tick" style={{ left: `${tick.ratio * 100}%` }}>{axisDate(tick.at)}</small>)}
+            {events.map((event) => (
+              <button
+                type="button"
+                key={event.id}
+                className="axis-node"
+                data-kind={event.kind}
+                aria-pressed={selected.id === event.id}
+                aria-label={`${event.title}，${localDate(event.peak)}，${daysAway(data, event)} 天后`}
+                title={`${event.title} · ${localDate(event.peak)}`}
+                style={{ left: `${position(event.peak)}%` }}
+                onClick={() => onSelect(event)}
+              ><EventIcon kind={event.kind} /></button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -112,34 +173,24 @@ export function EventsPanel({ data, events, selectedId, onSelect }: { data: Fore
   const selected = events.find((event) => event.id === selectedId) ?? events[0];
   const inWeatherRange = data.days.some((day) => day.date === dateKey(selected.peak));
   const fieldPoint = inWeatherRange ? closestHour(data.hourly, selected.peak) : null;
-  const SelectedIcon = selected.kind === "meteor-shower" ? Sparkles : selected.kind === "lunar-eclipse" ? MoonStar : Eclipse;
+  const index = events.findIndex((event) => event.id === selected.id);
+  const step = (delta: number) => onSelect(events[(index + delta + events.length) % events.length]);
   return (
-    <aside className="inspector events-inspector" aria-label="罕见天象事件面板">
-      <header className="inspector-header">
-        <div className="scene-title"><span><Telescope size={18} /></span><div><small>CELESTIAL CALENDAR</small><h1>天象事件</h1></div></div>
-        <span className="data-fresh"><i /> {events.length} 个事件</span>
+    <aside className="inspector events-inspector" aria-label="所选天象事件详情">
+      <header className="inspector-head">
+        <div><small>SELECTED EVENT</small><strong>{localDate(selected.peak)} · {daysAway(data, selected)} 天后</strong></div>
+        <span className="inspector-steppers">
+          <button type="button" aria-label="上一个天象事件" onClick={() => step(-1)}>‹</button>
+          <button type="button" aria-label="下一个天象事件" onClick={() => step(1)}>›</button>
+        </span>
       </header>
       <div className="inspector-scroll" id="workspace-detail" role="tabpanel">
-        <section className="event-overview">
-          <CalendarDays />
-          <div><span>按峰值日期排序</span><strong>远期看几何，临近再看天气</strong></div>
-          <p>流星雨峰值按夜间范围表达，不伪装成分钟级确定时刻。</p>
-        </section>
-        <div className="rare-event-list">
-          {events.map((event) => (
-            <button type="button" key={event.id} aria-pressed={selected.id === event.id} onClick={() => onSelect(event)}>
-              <span>{event.kind === "meteor-shower" ? <Sparkles /> : event.kind === "lunar-eclipse" ? <Orbit /> : <Eclipse />}</span>
-              <span><strong>{event.title}</strong><small>{localDate(event.peak)} · {daysAway(data, event)} 天后</small></span>
-              <em>{event.metric}</em>
-            </button>
-          ))}
-        </div>
-        <section className={`event-detail workspace-card ${selected.kind}`}>
-          <header>
-            <span><SelectedIcon /></span>
-            <div><small>NEXT SELECTED EVENT</small><h2>{selected.title}</h2></div>
-            <strong>{selected.metric}<small>{selected.metricLabel}</small></strong>
-          </header>
+        <section className={`event-detail ${selected.kind}`} aria-live="polite">
+          <div className="detail-title"><span className="inspector-icon"><EventIcon kind={selected.kind} /></span><h2>{selected.title}</h2></div>
+          <div className="event-headline">
+            <strong>{selected.metric}</strong>
+            <small>{selected.metricLabel}</small>
+          </div>
           <p>{selected.summary}</p>
           <div className="event-timing">
             <span><small>开始 / 活跃期起</small><strong>{longDateTime(selected.start)}</strong></span>
@@ -148,7 +199,7 @@ export function EventsPanel({ data, events, selectedId, onSelect }: { data: Fore
             <i />
             <span><small>结束 / 活跃期止</small><strong>{longDateTime(selected.end)}</strong></span>
           </div>
-          <div className="event-facts">
+          <div className="detail-grid">
             <span><small>距离事件</small><strong>{daysAway(data, selected)} 天</strong></span>
             <span><small>本地方位</small><strong>{selected.azimuth === null ? "—" : compass(selected.azimuth)}</strong></span>
             <span><small>{selected.kind === "meteor-shower" ? "峰值夜辐射点高度" : "食甚高度"}</small><strong>{selected.altitude === null ? "—" : `${selected.altitude.toFixed(1)}°`}</strong></span>
