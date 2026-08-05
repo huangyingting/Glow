@@ -30,6 +30,8 @@ interface ForecastOptions {
 const MODELS: ModelConfig[] = [
   { id: "ecmwf_ifs025", name: "ECMWF IFS", role: "ECMWF 0.25° 开放模式，负责全球大尺度云雨结构" },
   { id: "cma_grapes_global", name: "CMA GRAPES", role: "中国气象局 15 km 全球模式，提供独立区域判断" },
+  { id: "gfs_global", name: "NOAA GFS", role: "美国 NCEP 全球模式，提供独立于欧洲中心的全球判断" },
+  { id: "icon_global", name: "DWD ICON", role: "德国气象局全球模式，补充第三个独立预报中心视角" },
 ];
 
 const OPEN_METEO_API_KEY = process.env.OPEN_METEO_API_KEY?.trim() || null;

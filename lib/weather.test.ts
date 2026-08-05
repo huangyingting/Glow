@@ -67,25 +67,25 @@ describe("forecast subsystem degradation", () => {
     expect(response.generatedAt).toBe("2026-08-03T00:00:00.000Z");
     expect(response.days).toHaveLength(7);
     expect(response.hourly).toHaveLength(168);
-    expect(response.days[0].dawn.modelScores).toHaveLength(2);
-    expect(response.days[0].weather.cloud.modelScores).toHaveLength(2);
+    expect(response.days[0].dawn.modelScores).toHaveLength(4);
+    expect(response.days[0].weather.cloud.modelScores).toHaveLength(4);
     expect(response.days[0].weather.rain.score).toBeGreaterThanOrEqual(0);
     expect(response.hourly[0].solarAzimuth).toBeGreaterThanOrEqual(0);
     expect(response.provenance).toEqual(expect.objectContaining({ delivery: "Open-Meteo", warningAuthority: false }));
     expect(response.sources.every((source) => source.status === "available")).toBe(true);
   });
 
-  it("continues with one weather model when its peer and CAMS are unavailable", async () => {
+  it("continues with one weather model when its peers and CAMS are unavailable", async () => {
     const response = await getForecast(CITIES[0], {
       now: new Date("2026-08-03T00:00:00Z"),
       fetcher: async (url: URL) => {
-        if (url.hostname.startsWith("air-quality") || url.searchParams.get("models") === "ecmwf_ifs025") throw new Error("simulated outage");
+        if (url.hostname.startsWith("air-quality") || url.searchParams.get("models") !== "cma_grapes_global") throw new Error("simulated outage");
         return forecastFixture(3);
       },
     });
     expect(response.days[0].dawn.modelScores).toHaveLength(1);
     expect(response.days[0].weather.cloud.modelScores).toHaveLength(1);
-    expect(response.sources.map((source) => source.status)).toEqual(["unavailable", "available", "unavailable"]);
+    expect(response.sources.map((source) => source.status)).toEqual(["unavailable", "available", "unavailable", "unavailable", "unavailable"]);
     expect(response.days).toHaveLength(7);
   });
 
@@ -109,6 +109,6 @@ describe("forecast subsystem degradation", () => {
 
     const response = await getForecast(CITIES[0], { now: new Date("2026-08-03T00:00:00Z") });
     expect(response.days).toHaveLength(7);
-    expect([...attempts.values()]).toEqual([2, 2, 2]);
+    expect([...attempts.values()]).toEqual([2, 2, 2, 2, 2]);
   });
 });
