@@ -15,6 +15,17 @@ import {
 import type { AstronomySummary, City, EclipseForecast, MoonGeometry, SolarWindow } from "@/lib/types";
 import { getMeteorShowers } from "@/lib/meteor-showers";
 
+const observerCache = new WeakMap<City, Observer>();
+
+function observerFor(city: City) {
+  let observer = observerCache.get(city);
+  if (!observer) {
+    observer = new Observer(city.latitude, city.longitude, 0);
+    observerCache.set(city, observer);
+  }
+  return observer;
+}
+
 function localDateStart(date: Date, dateKey?: string) {
   const china = dateKey ?? new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
   return new Date(`${china}T00:00:00+08:00`);
@@ -75,7 +86,7 @@ function visibleSolarEclipse(start: Date, observer: Observer): EclipseForecast {
 }
 
 export function getMoonGeometry(city: City, at: Date, dateKey?: string): MoonGeometry {
-  const observer = new Observer(city.latitude, city.longitude, 0);
+  const observer = observerFor(city);
   const moonPosition = horizontal(Body.Moon, at, observer);
   const phaseAngle = MoonPhase(at);
   const illumination = Illumination(Body.Moon, at).phase_fraction;
@@ -95,7 +106,7 @@ export function getMoonGeometry(city: City, at: Date, dateKey?: string): MoonGeo
 }
 
 export function getMoonPosition(city: City, at: Date) {
-  const observer = new Observer(city.latitude, city.longitude, 0);
+  const observer = observerFor(city);
   const position = horizontal(Body.Moon, at, observer);
   return {
     altitude: position.altitude,
@@ -105,7 +116,7 @@ export function getMoonPosition(city: City, at: Date) {
 }
 
 export function getAstronomy(city: City, at = new Date()): AstronomySummary {
-  const observer = new Observer(city.latitude, city.longitude, 0);
+  const observer = observerFor(city);
   return {
     nextLunarEclipse: visibleLunarEclipse(at, observer),
     nextSolarEclipse: visibleSolarEclipse(at, observer),
@@ -126,12 +137,12 @@ export function getSolarAltitude(city: City, at: Date) {
 }
 
 export function getSolarPosition(city: City, at: Date) {
-  const position = horizontal(Body.Sun, at, new Observer(city.latitude, city.longitude, 0), false);
+  const position = horizontal(Body.Sun, at, observerFor(city), false);
   return { altitude: position.altitude, azimuth: position.azimuth };
 }
 
 export function getSolarWindow(city: City, sunrise: string, sunset: string): SolarWindow {
-  const observer = new Observer(city.latitude, city.longitude, 0);
+  const observer = observerFor(city);
   const date = sunrise.slice(0, 10);
   const start = new Date(`${date}T00:00:00+08:00`);
   const noon = new Date(`${date}T12:00:00+08:00`);

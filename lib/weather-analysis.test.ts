@@ -52,6 +52,24 @@ describe("extensible weather analysis tools", () => {
     expect(precipitationAmount(metrics({ precipitation: null, rain: null, showers: null }))).toBeNull();
   });
 
+  it("keeps missing cloud, rain, and rainbow inputs unavailable instead of turning them into clear weather", () => {
+    const missing = metrics({
+      totalCloud: null,
+      lowCloud: null,
+      midCloud: null,
+      highCloud: null,
+      precipitationProbability: null,
+      precipitation: null,
+      rain: null,
+      showers: null,
+      directRadiation: null,
+    });
+    const result = buildWeatherAnalysis([hour("2026-08-03T18:00", missing, missing)], 0);
+    expect(result.cloud).toEqual(expect.objectContaining({ score: null, confidence: 0, level: "云量数据不可用" }));
+    expect(result.rain).toEqual(expect.objectContaining({ score: null, confidence: 0, level: "降水数据不可用" }));
+    expect(result.rainbow).toEqual(expect.objectContaining({ score: null, confidence: 0, level: "彩虹数据不足" }));
+  });
+
   it("requires concurrent daylight and precipitation for rainbow potential", () => {
     expect(rainbowSignal(metrics({ solarAltitude: -2 }))).toBe(0);
     expect(rainbowSignal(metrics({ solarAltitude: 50 }))).toBe(0);

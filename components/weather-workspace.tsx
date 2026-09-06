@@ -38,6 +38,18 @@ export function WeatherCatalog({ day, hours, selectedTime, onHour }: {
   const high = temperatures.length ? Math.max(...temperatures) : null;
   const low = temperatures.length ? Math.min(...temperatures) : null;
   const rainHours = hours.filter((item) => (item.precipitationProbability ?? 0) >= 40).length;
+  const selectedIndex = Math.max(0, hours.findIndex((item) => item.time === selectedTime));
+  const move = (index: number, key: string) => {
+    const next = key === "ArrowDown" || key === "ArrowRight" ? Math.min(hours.length - 1, index + 1)
+      : key === "ArrowUp" || key === "ArrowLeft" ? Math.max(0, index - 1)
+        : key === "Home" ? 0
+          : key === "End" ? hours.length - 1
+            : index;
+    if (next !== index) {
+      onHour(hours[next]);
+      window.requestAnimationFrame(() => document.getElementById(`weather-hour-${next}`)?.focus());
+    }
+  };
   return (
     <section className="catalog-rail" aria-label="逐小时天气列表">
       <CatalogHead icon={CloudSun} eyebrow="POINT WEATHER" title="天气工作台" badge={`${hours.length} 小时`} />
@@ -47,8 +59,22 @@ export function WeatherCatalog({ day, hours, selectedTime, onHour }: {
           <span>{rainHours ? `${rainHours} 个小时降水概率 ≥ 40%` : "全天没有高降水概率时段"}。逐小时为所选点位的单点预报。</span>
         </p>
         <div className="hour-list" role="listbox" aria-label={`${day.shortDate}逐小时天气`}>
-          {hours.map((point) => (
-            <button key={point.time} type="button" role="option" aria-selected={point.time === selectedTime} onClick={() => onHour(point)}>
+          {hours.map((point, index) => (
+            <button
+              id={`weather-hour-${index}`}
+              key={point.time}
+              type="button"
+              role="option"
+              tabIndex={index === selectedIndex ? 0 : -1}
+              aria-selected={index === selectedIndex}
+              onKeyDown={(event) => {
+                if (["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft", "Home", "End"].includes(event.key)) {
+                  event.preventDefault();
+                  move(index, event.key);
+                }
+              }}
+              onClick={() => onHour(point)}
+            >
               <span className="hour-time">{localTime(point.time)}</span>
               <span className="hour-icon"><WeatherIcon point={point} /></span>
               <strong>{point.temperature === null ? "—" : `${Math.round(point.temperature)}°`}</strong>

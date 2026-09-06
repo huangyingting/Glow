@@ -28,6 +28,8 @@ const ECLIPSE_KIND: Record<EclipseForecast["kind"], string> = {
   annular: "环食",
   total: "全食",
 };
+const dateKeyFormatter = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai" });
+const axisDateFormatter = new Intl.DateTimeFormat("zh-CN", { year: "2-digit", month: "numeric", day: "numeric", timeZone: "Asia/Shanghai" });
 
 export function buildRareEvents(data: ForecastResponse): RareEvent[] {
   const lunar = data.astronomy.nextLunarEclipse;
@@ -89,12 +91,12 @@ function daysAway(data: ForecastResponse, event: RareEvent) {
 }
 
 function dateKey(value: string) {
-  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(forecastInstant(value)));
+  return dateKeyFormatter.format(new Date(forecastInstant(value)));
 }
 
 /** Axis ticks can span several years, so they always carry the year — `8/5` alone would read as a date in the past. */
 function axisDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { year: "2-digit", month: "numeric", day: "numeric", timeZone: "Asia/Shanghai" }).format(new Date(forecastInstant(value)));
+  return axisDateFormatter.format(new Date(forecastInstant(value)));
 }
 
 function EventIcon({ kind }: { kind: RareEvent["kind"] }) {

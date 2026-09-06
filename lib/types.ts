@@ -96,12 +96,12 @@ export interface WeatherAnalysisMetrics {
 
 export interface WeatherAnalysisForecast {
   time: string;
-  score: number;
+  score: number | null;
   confidence: number;
   level: string;
   summary: string;
   metrics: WeatherAnalysisMetrics;
-  modelScores: { model: string; score: number }[];
+  modelScores: { model: string; score: number | null }[];
   viewingAzimuth: number | null;
 }
 

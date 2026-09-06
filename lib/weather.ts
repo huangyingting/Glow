@@ -72,6 +72,9 @@ const HOURLY_FIELD_KEYS = [
   "surface_pressure",
 ] as const;
 const HOURLY_FIELDS = HOURLY_FIELD_KEYS.join(",");
+const timeIndexCache = new WeakMap<object, Map<string, number>>();
+const weekdayFormatter = new Intl.DateTimeFormat("zh-CN", { weekday: "short", timeZone: "Asia/Shanghai" });
+const shortDateFormatter = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", timeZone: "Asia/Shanghai" });
 
 function asNumber(value: string | number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -111,6 +114,15 @@ function valuesAt(data: Record<string, (string | number | null)[]>, key: string,
   return indices.map((index) => asNumber(data[key]?.[index]));
 }
 
+function timeIndex(data: OpenMeteoForecast | OpenMeteoAir, time: string) {
+  let indices = timeIndexCache.get(data);
+  if (!indices) {
+    indices = new Map(data.hourly.time.map((value, index) => [value, index]));
+    timeIndexCache.set(data, indices);
+  }
+  return indices.get(time) ?? -1;
+}
+
 function airMetricsAt(air: OpenMeteoAir | null, target: string, kind: EventKind) {
   if (!air) return { aerosolOpticalDepth: null, pm25: null };
   const indices = indicesNear(air.hourly.time, target, kind);
@@ -136,7 +148,7 @@ function metricsAt(model: OpenMeteoForecast, air: OpenMeteoAir | null, target: s
 }
 
 function fogMetricsAt(model: OpenMeteoForecast, time: string): FogMetrics {
-  const index = model.hourly.time.indexOf(time);
+  const index = timeIndex(model, time);
   return {
     temperature: asNumber(model.hourly.temperature_2m?.[index]),
     dewPoint: asNumber(model.hourly.dew_point_2m?.[index]),
@@ -162,7 +174,7 @@ function averageFogMetrics(items: FogMetrics[]): FogMetrics {
 }
 
 function nightMetricsAt(model: OpenMeteoForecast, time: string): NightWeatherMetrics {
-  const index = model.hourly.time.indexOf(time);
+  const index = timeIndex(model, time);
   return {
     temperature: asNumber(model.hourly.temperature_2m?.[index]),
     dewPoint: asNumber(model.hourly.dew_point_2m?.[index]),
@@ -202,7 +214,7 @@ function forecastInstant(time: string) {
 }
 
 function weatherAnalysisMetricsAt(city: City, model: OpenMeteoForecast, time: string): WeatherAnalysisMetrics {
-  const index = model.hourly.time.indexOf(time);
+  const index = timeIndex(model, time);
   const solar = getSolarPosition(city, forecastInstant(time));
   return {
     totalCloud: asNumber(model.hourly.cloud_cover?.[index]),
@@ -389,9 +401,9 @@ function buildFogForecast(date: string, leadDays: number, available: { config: M
 function buildHourly(city: City, available: { config: ModelConfig; data: OpenMeteoForecast }[], air: OpenMeteoAir | null): HourlyWeatherPoint[] {
   const reference = available[0].data;
   return reference.hourly.time.map((time) => {
-    const indices = available.map(({ data }) => data.hourly.time.indexOf(time));
+    const indices = available.map(({ data }) => timeIndex(data, time));
     const modelValues = (key: string) => available.map(({ data }, modelIndex) => asNumber(data.hourly[key]?.[indices[modelIndex]]));
-    const airIndex = air?.hourly.time.indexOf(time) ?? -1;
+    const airIndex = air ? timeIndex(air, time) : -1;
     const solar = getSolarPosition(city, forecastInstant(time));
     return {
       time,
@@ -461,8 +473,8 @@ function buildEvent(
 function formatDay(date: string) {
   const value = new Date(`${date}T12:00:00+08:00`);
   return {
-    weekday: new Intl.DateTimeFormat("zh-CN", { weekday: "short", timeZone: "Asia/Shanghai" }).format(value),
-    shortDate: new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", timeZone: "Asia/Shanghai" }).format(value),
+    weekday: weekdayFormatter.format(value),
+    shortDate: shortDateFormatter.format(value),
   };
 }
 

@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CloudFog, Compass, MoonStar, Rainbow, Sparkles, Star, Sun, Sunrise, Sunset, Telescope } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { DailyOpportunity, DayForecast, ForecastResponse, OpportunityKind } from "@/lib/types";
+import type { DailyOpportunity, DayForecast, ForecastResponse, OpportunityKind, SpaceWeatherResponse } from "@/lib/types";
 import { CatalogHead, DateTabs, DockAstro, FieldBriefing, PanelCard, ScoreDial, SourceDisclosure, closestHour, compass, forecastInstant, localTime, minuteOfDay } from "@/components/workspace-common";
 
 const OPPORTUNITY_ICONS: Record<OpportunityKind, LucideIcon> = {
@@ -75,7 +75,7 @@ export function OpportunityDock({ data, day, dayIndex, opportunities, selectedId
   onOpportunity: (item: DailyOpportunity) => void;
   onInstant: (instant: number) => void;
 }) {
-  const currentMinutes = Math.max(0, Math.min(1439, Math.round((selectedInstant - forecastInstant(`${day.date}T00:00`)) / 60_000)));
+  const currentMinutes = minuteOfDay(new Date(selectedInstant).toISOString());
   const sunrise = minuteOfDay(day.sunrise);
   const sunset = minuteOfDay(day.sunset);
   const selected = opportunities.find((item) => item.id === selectedId) ?? opportunities[0];
@@ -95,6 +95,7 @@ export function OpportunityDock({ data, day, dayIndex, opportunities, selectedId
         <div className="clock-track">
           <span className="daylight-band" style={{ left: `${sunrise / 14.4}%`, width: `${Math.max(0, sunset - sunrise) / 14.4}%` }} />
           <span className="selected-window" style={{ left: `${start / 14.4}%`, width: `${windowWidth}%` }} />
+          <span className="clock-cursor" aria-hidden="true" style={{ left: `${currentMinutes / 14.4}%` }} />
           {[0, 3, 6, 9, 12, 15, 18, 21, 24].map((hour) => <i key={hour} style={{ left: `${hour / 24 * 100}%` }}><small>{String(hour).padStart(2, "0")}</small></i>)}
           {opportunities.map((item, index) => {
             const Icon = OPPORTUNITY_ICONS[item.id];
@@ -131,11 +132,12 @@ export function OpportunityDock({ data, day, dayIndex, opportunities, selectedId
 }
 
 /** Right inspector: everything about the one window the photographer is committing to. */
-export function OpportunityPanel({ data, opportunities, selectedId, selectedInstant, onSelect }: {
+export function OpportunityPanel({ data, opportunities, selectedId, selectedInstant, spaceWeatherStatus, onSelect }: {
   data: ForecastResponse;
   opportunities: DailyOpportunity[];
   selectedId: OpportunityKind;
   selectedInstant: number;
+  spaceWeatherStatus?: SpaceWeatherResponse["status"];
   onSelect: (item: DailyOpportunity) => void;
 }) {
   const selected = opportunities.find((item) => item.id === selectedId) ?? opportunities[0];
@@ -182,7 +184,7 @@ export function OpportunityPanel({ data, opportunities, selectedId, selectedInst
           </PanelCard>
         )}
         <FieldBriefing point={fieldPoint} label={`${localTime(new Date(selectedInstant).toISOString())} 时刻`} elevation={data.location.elevation} />
-        <SourceDisclosure data={data} includeSpaceWeather />
+        <SourceDisclosure data={data} includeSpaceWeather spaceWeatherStatus={spaceWeatherStatus} />
         <p className="inspector-disclaimer">机会指数用于摄影计划，不是统计概率，也不替代气象灾害预警与现场安全判断。</p>
       </div>
     </aside>

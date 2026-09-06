@@ -69,7 +69,8 @@ describe("forecast subsystem degradation", () => {
     expect(response.hourly).toHaveLength(168);
     expect(response.days[0].dawn.modelScores).toHaveLength(4);
     expect(response.days[0].weather.cloud.modelScores).toHaveLength(4);
-    expect(response.days[0].weather.rain.score).toBeGreaterThanOrEqual(0);
+    expect(response.days[0].weather.rain.score).not.toBeNull();
+    expect(response.days[0].weather.rain.score!).toBeGreaterThanOrEqual(0);
     expect(response.hourly[0].solarAzimuth).toBeGreaterThanOrEqual(0);
     expect(response.provenance).toEqual(expect.objectContaining({ delivery: "Open-Meteo", warningAuthority: false }));
     expect(response.sources.every((source) => source.status === "available")).toBe(true);

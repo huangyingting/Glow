@@ -62,7 +62,7 @@
 
 普通天气和空间天气使用不同接口：
 
-- `/api/forecast`：Open-Meteo 交付的 ECMWF、CMA、CAMS，加 Astronomy Engine。
+- `/api/forecast`：Open-Meteo 交付的 ECMWF、CMA、GFS、ICON 与 CAMS，加 Astronomy Engine。
 - `/api/space-weather`：NOAA SWPC planetary K-index forecast，15 分钟边缘缓存。
 
 NOAA 响应会验证时间、Kp 范围和状态字段，并兼容当前对象数组与历史表格数组两种公开格式。上游失败时接口返回显式 `unavailable` 合同，不让普通天气变成 503。

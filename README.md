@@ -10,7 +10,7 @@
 
 - 朝霞与晚霞分别评分，不把两次不同天气窗口合并。
 - 日出、日落、金色时段与蓝调使用确定性天文几何，不伪装成概率。
-- 雾景、月亮、星空继续使用双天气模式、时效和数据完整度形成机会指数。
+- 雾景、月亮、星空使用 ECMWF、CMA、GFS 与 ICON 多模式集合、时效和数据完整度形成机会指数。
 - 彩虹同时检查降水、直射阳光、太阳高度和反太阳观察方向，并明确单点网格不知道雨幕空间位置。
 - 极光通过独立 `/api/space-weather` 接入 NOAA SWPC Kp 预报；结合本地纬度经验门槛、天文黑夜与云量。数据源故障或超出有效期时显示“暂无可靠预测”，不会补成 0 分。
 
@@ -42,7 +42,7 @@
 
 ## 数据来源与可信度
 
-- ECMWF IFS 0.25° 与 CMA GRAPES Global 15 km 独立形成天气判断；模式分歧、预报提前量和缺失字段会降低可信度。
+- ECMWF IFS、CMA GRAPES、NOAA GFS 与 DWD ICON 独立形成天气判断；模式分歧、预报提前量和缺失字段会降低可信度。
 - CAMS 提供气溶胶光学厚度与 PM₂.₅。
 - Open-Meteo 是统一 HTTPS API 交付层，不是中国官方预警机构。开放端点适用于非商业使用；商业部署应配置 `OPEN_METEO_API_KEY`。
 - NOAA SWPC 提供 Kp 空间天气指导。Kp 是全球地磁活动指标，不等于某地点一定能看见极光；当前尚未接入实时极光椭圆和太阳风 Bz。
@@ -66,7 +66,7 @@ npm run dev
 npm run verify
 ```
 
-验证链路包括 ESLint、TypeScript、35 个气象/天文/空间天气/API 单元测试、生产构建和 22 个 Playwright 流程。浏览器验证覆盖三个工作区、9 个每日机会、云/雨/风、24 小时与 7 日选择、三向机会联动、日月食与流星雨、极光降级、搜索/定位/地图落点/拖动/刷新/错误恢复、安全响应头和 320×568 至 1920×1080 的 8 个视口。
+验证链路包括 ESLint、TypeScript、37 个气象/天文/空间天气/API 单元测试、生产构建和 22 个 Playwright 流程。浏览器验证覆盖三个工作区、9 个每日机会、云/雨/风、24 小时与 7 日选择、三向机会联动、日月食与流星雨、极光降级、搜索/定位/地图落点/拖动/刷新/错误恢复、安全响应头和 320×568 至 1920×1080 的 8 个视口。
 
 UI 审计生成 82 张状态截图，并以 14 次 Axe 扫描覆盖三个工作区、天气详情、搜索、错误和 404 状态。`npm run verify:audit` 会交叉核对工作区注册表、Playwright 结果和截图矩阵，防止一个绿色退出码掩盖覆盖缺口。
 
@@ -80,7 +80,7 @@ UI 审计生成 82 张状态截图，并以 14 次 Axe 扫描覆盖三个工作�
 - `lib/opportunities.ts`：把摄影模型、天文几何、彩虹和极光适配成统一每日机会。
 - `lib/space-weather.ts`：NOAA SWPC Kp 适配、验证、重试与独立降级。
 - `lib/meteor-showers.ts`：主要流星雨年表、本地辐射点和月光条件。
-- `lib/weather.ts`：双模式 168 小时天气、摄影模型和单模式降级。
+- `lib/weather.ts`：多模式 168 小时天气、摄影模型和单模式降级。
 - `lib/astronomy.ts`：太阳、月亮、暮光与本地可见食象。
 
 详细边界见 [`docs/data-research.md`](docs/data-research.md)、[`docs/weather-tools-architecture.md`](docs/weather-tools-architecture.md) 和 [`docs/professional-photography-audit.md`](docs/professional-photography-audit.md)。

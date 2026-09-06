@@ -1,6 +1,7 @@
 import type { City, DailyOpportunity, DayForecast, SpaceWeatherResponse } from "@/lib/types";
 
 const MINUTE = 60_000;
+const spaceWeatherTimeFormatter = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Shanghai" });
 
 function instant(value: string) {
   return new Date(value.endsWith("Z") ? value : `${value}:00+08:00`);
@@ -71,7 +72,7 @@ function auroraOpportunity(day: DayForecast, city: City, spaceWeather: SpaceWeat
       { label: "最强 Kp", value: strongest ? strongest.kp.toFixed(1) : "—" },
       { label: "本地经验门槛", value: `约 Kp ${requiredKp}` },
       { label: "星空天气", value: `${day.night.probability}/100` },
-      { label: "数据时效", value: spaceWeather?.validUntil ? `至 ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(spaceWeather.validUntil))}` : "暂无" },
+      { label: "数据时效", value: spaceWeather?.validUntil ? `至 ${spaceWeatherTimeFormatter.format(new Date(spaceWeather.validUntil))}` : "暂无" },
     ],
   };
 }
@@ -129,7 +130,7 @@ export function buildDailyOpportunities(day: DayForecast, city: City, spaceWeath
       summary: rainbow.summary, limitation: "单点网格不知道雨幕是否位于反太阳方向，只能表达彩虹潜势。",
       direction: rainbow.viewingAzimuth === null ? null : { azimuth: rainbow.viewingAzimuth, label: "建议观虹方向" },
       details: [
-        { label: "降水信号", value: `${rainbow.score}/100` },
+        { label: "彩虹潜势", value: rainbow.score === null ? "暂无" : `${rainbow.score}/100` },
         { label: "太阳高度", value: `${rainbow.metrics.solarAltitude.toFixed(1)}°` },
         { label: "直射辐射", value: rainbow.metrics.directRadiation === null ? "—" : `${Math.round(rainbow.metrics.directRadiation)} W/m²` },
         { label: "观测方位", value: rainbow.viewingAzimuth === null ? "—" : `${Math.round(rainbow.viewingAzimuth)}°` },
@@ -189,4 +190,3 @@ export function buildDailyOpportunities(day: DayForecast, city: City, spaceWeath
   ];
   return items.sort((a, b) => new Date(a.peak).getTime() - new Date(b.peak).getTime());
 }
-

@@ -167,18 +167,22 @@ function WorkspaceNavigation({ active, onChange }: { active: WorkspaceMode; onCh
   );
 }
 
-function SourceHealth({ sources }: { sources?: ForecastResponse["sources"] }) {
+function SourceHealth({ sources, generatedAt }: { sources?: ForecastResponse["sources"]; generatedAt?: string }) {
   const available = sources?.filter((source) => source.status === "available").length ?? 0;
-  const label = sources ? `${available}/${sources.length} 个天气数据源在线` : "天气数据加载中";
+  const updated = generatedAt ? localTime(generatedAt) : null;
+  const label = sources ? `${available}/${sources.length} 个天气数据源在线${updated ? `，${updated} 更新` : ""}` : "天气数据加载中";
   return (
     <span className="header-health" role="status" title={label} data-state={!sources ? "loading" : available === sources.length ? "healthy" : "degraded"}>
-      <Database size={13} /><i aria-hidden="true" />{sources ? `${available}/${sources.length} 数据源` : "连接中"}
+      <Database size={13} /><i aria-hidden="true" />{sources ? `${available}/${sources.length}${updated ? ` · ${updated}` : ""}` : "连接中"}
     </span>
   );
 }
 
-function bestOpportunity(items: DailyOpportunity[]) {
-  return items.reduce<DailyOpportunity | null>((current, item) => item.score === null ? current : !current || (item.score ?? 0) > (current.score ?? 0) ? item : current, null) ?? items[0];
+function bestOpportunity(items: DailyOpportunity[], notBefore?: number) {
+  const scored = items.filter((item) => item.score !== null);
+  const upcoming = notBefore === undefined ? scored : scored.filter((item) => forecastInstant(item.end) >= notBefore);
+  const candidates = upcoming.length ? upcoming : scored;
+  return candidates.reduce<DailyOpportunity | null>((current, item) => !current || (item.score ?? 0) > (current.score ?? 0) ? item : current, null) ?? items[0];
 }
 
 function hoursForDay(data: ForecastResponse, date: string) {
@@ -218,6 +222,7 @@ export function GlowDashboard() {
   const [weatherView, setWeatherView] = useState<WeatherView>("cloud");
   const [selectedEventId, setSelectedEventId] = useState("");
   const requestRef = useRef(0);
+  const forecastAbortRef = useRef<AbortController | null>(null);
   const currentUrlRef = useRef("/api/forecast?city=beijing");
 
   const loadSpaceWeather = useCallback(async (force = false) => {
@@ -232,16 +237,19 @@ export function GlowDashboard() {
 
   const loadForecast = useCallback(async (url: string, force = false) => {
     const request = ++requestRef.current;
+    forecastAbortRef.current?.abort();
+    const controller = new AbortController();
+    forecastAbortRef.current = controller;
     setStatus((current) => current === "loading" ? "loading" : "updating");
     setError(null);
     try {
-      const response = await fetch(url, force ? { cache: "no-store" } : undefined);
+      const response = await fetch(url, { cache: force ? "no-store" : "default", signal: controller.signal });
       const payload = await response.json() as ForecastResponse | { error: string };
       if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "天气数据加载失败");
       if (request !== requestRef.current) return true;
-      const dayIndex = 0;
+      const dayIndex = Math.max(0, Math.min(payload.days.length - 1, payload.recommendedIndex));
       const agenda = buildDailyOpportunities(payload.days[dayIndex], payload.location, null);
-      const best = bestOpportunity(agenda);
+      const best = bestOpportunity(agenda, forecastInstant(payload.generatedAt));
       const weather = initialWeatherPoint(payload, dayIndex);
       const events = buildRareEvents(payload);
       setData(payload);
@@ -252,6 +260,7 @@ export function GlowDashboard() {
       setWeatherTime(weather?.time ?? "");
       setSelectedEventId(events[0]?.id ?? "");
       setStatus("ready");
+      forecastAbortRef.current = null;
       return true;
     } catch (reason) {
       if (request !== requestRef.current) return true;
@@ -266,7 +275,10 @@ export function GlowDashboard() {
       void loadSpaceWeather();
       void loadForecast("/api/forecast?city=beijing");
     }, 0);
-    return () => window.clearTimeout(task);
+    return () => {
+      window.clearTimeout(task);
+      forecastAbortRef.current?.abort();
+    };
   }, [loadForecast, loadSpaceWeather]);
 
   const current = data?.location ?? CITIES[0];
@@ -282,7 +294,7 @@ export function GlowDashboard() {
     if (!data) return;
     setSelectedIndex(index);
     const nextAgenda = buildDailyOpportunities(data.days[index], data.location, spaceWeather);
-    const nextBest = bestOpportunity(nextAgenda);
+    const nextBest = bestOpportunity(nextAgenda, Date.now());
     const weather = initialWeatherPoint(data, index);
     setSelectedOpportunityId(nextBest.id);
     setSelectedInstant(forecastInstant(nextBest.peak));
@@ -335,7 +347,7 @@ export function GlowDashboard() {
         <LocationSearch current={current} onSelect={(city) => { void loadForecast(`/api/forecast?city=${city.id}`); }} onLocate={locate} />
         <div className="header-status">
           <span className="sr-only" role="status" aria-live="polite">{status === "loading" ? "正在加载天气数据" : status === "updating" ? "正在刷新当前预测" : status === "error" ? "天气数据加载失败" : "预测已更新"}</span>
-          <SourceHealth sources={data?.sources} />
+          <SourceHealth sources={data?.sources} generatedAt={data?.generatedAt} />
           <button
             type="button"
             className={`refresh-forecast ${status === "updating" ? "syncing" : ""}`}
@@ -385,7 +397,7 @@ export function GlowDashboard() {
         </section>
 
         {ready && data && day && selectedOpportunity && selectedWeather && selectedEvent ? (
-          workspace === "opportunities" ? <OpportunityPanel data={data} opportunities={opportunities} selectedId={selectedOpportunity.id} selectedInstant={selectedInstant} onSelect={selectOpportunity} />
+          workspace === "opportunities" ? <OpportunityPanel data={data} opportunities={opportunities} selectedId={selectedOpportunity.id} selectedInstant={selectedInstant} spaceWeatherStatus={spaceWeather?.status} onSelect={selectOpportunity} />
             : workspace === "weather" ? <WeatherPanel data={data} point={selectedWeather} hours={dayHours} view={weatherView} onView={setWeatherView} />
               : <EventsPanel data={data} events={events} selectedId={selectedEvent.id} onSelect={selectEvent} />
         ) : (

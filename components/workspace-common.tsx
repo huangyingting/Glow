@@ -2,7 +2,12 @@
 
 import { ChevronDown, Cloud, Database, Droplets, Eye, Gauge, Navigation, Thermometer, Wind } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { DayForecast, ForecastResponse, HourlyWeatherPoint } from "@/lib/types";
+import type { DayForecast, ForecastResponse, HourlyWeatherPoint, SpaceWeatherResponse } from "@/lib/types";
+
+const localTimeFormatter = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" });
+const localDateFormatter = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", weekday: "short", timeZone: "Asia/Shanghai" });
+const longDateTimeFormatter = new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" });
+const timePartsFormatter = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" });
 
 export function forecastInstant(value: string) {
   return new Date(value.endsWith("Z") ? value : `${value}:00+08:00`).getTime();
@@ -10,15 +15,15 @@ export function forecastInstant(value: string) {
 
 export function localTime(value: string | null) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).format(new Date(forecastInstant(value)));
+  return localTimeFormatter.format(new Date(forecastInstant(value)));
 }
 
 export function localDate(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", weekday: "short", timeZone: "Asia/Shanghai" }).format(new Date(forecastInstant(value)));
+  return localDateFormatter.format(new Date(forecastInstant(value)));
 }
 
 export function longDateTime(value: string) {
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).format(new Date(forecastInstant(value)));
+  return longDateTimeFormatter.format(new Date(forecastInstant(value)));
 }
 
 export function compass(value: number | null) {
@@ -37,7 +42,7 @@ export function closestHour(hourly: HourlyWeatherPoint[], target: string) {
 }
 
 export function minuteOfDay(value: string) {
-  const parts = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Shanghai" }).formatToParts(new Date(forecastInstant(value)));
+  const parts = timePartsFormatter.formatToParts(new Date(forecastInstant(value)));
   const hour = Number(parts.find((part) => part.type === "hour")?.value ?? 0) % 24;
   const minute = Number(parts.find((part) => part.type === "minute")?.value ?? 0);
   return hour * 60 + minute;
@@ -152,14 +157,24 @@ export function FieldBriefing({ point, label, elevation }: { point: HourlyWeathe
   );
 }
 
-export function SourceDisclosure({ data, includeSpaceWeather = false }: { data: ForecastResponse; includeSpaceWeather?: boolean }) {
+export function SourceDisclosure({ data, includeSpaceWeather = false, spaceWeatherStatus }: {
+  data: ForecastResponse;
+  includeSpaceWeather?: boolean;
+  spaceWeatherStatus?: SpaceWeatherResponse["status"];
+}) {
+  const spaceWeatherAvailable = spaceWeatherStatus === "available";
+  const spaceWeatherLabel = spaceWeatherStatus === "available"
+    ? "Kp 空间天气指导；独立接口失败时不会影响普通天气"
+    : spaceWeatherStatus === "unavailable"
+      ? "当前源不可用，极光机会不会补成 0 分"
+      : "正在连接独立空间天气接口";
   return (
     <details className="source-disclosure">
       <summary><span><Database size={14} /> 数据、模型与边界</span><ChevronDown size={14} /></summary>
       <div>
         {data.sources.map((source) => <p key={source.id}><i className={source.status} /><span><strong>{source.name}</strong><small>{source.role}</small></span></p>)}
-        {includeSpaceWeather && <p><i className="available" /><span><strong><a href="https://www.swpc.noaa.gov/" target="_blank" rel="noreferrer">NOAA SWPC ↗</a></strong><small>Kp 空间天气指导；独立接口失败时不会影响普通天气</small></span></p>}
-        <p><i className="available" /><span><strong><a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo ↗</a></strong><small>{data.provenance.access === "customer" ? "商业客户接口" : "非商业开放接口"} · {data.provenance.license} · ECMWF / CMA / CAMS 交付层</small></span></p>
+        {includeSpaceWeather && <p><i className={spaceWeatherAvailable ? "available" : spaceWeatherStatus === "unavailable" ? "unavailable" : ""} /><span><strong><a href="https://www.swpc.noaa.gov/" target="_blank" rel="noreferrer">NOAA SWPC ↗</a></strong><small>{spaceWeatherLabel}</small></span></p>}
+        <p><i className="available" /><span><strong><a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo ↗</a></strong><small>{data.provenance.access === "customer" ? "商业客户接口" : "非商业开放接口"} · {data.provenance.license} · ECMWF / CMA / GFS / ICON / CAMS 交付层</small></span></p>
         <p><i className="available" /><span><strong>Astronomy Engine</strong><small>日月位置、暮光与本地食象几何</small></span></p>
         <p><i /><span><strong><a href="https://weather.cma.cn/web/alarm/map.html" target="_blank" rel="noreferrer">中国气象局预警 ↗</a></strong><small>权威灾害预警；当前工作台不替代官方预警</small></span></p>
       </div>

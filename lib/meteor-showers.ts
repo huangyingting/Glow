@@ -26,6 +26,7 @@ const MAJOR_SHOWERS: ShowerDefinition[] = [
   { id: "leonids", name: "狮子座流星雨", peakMonth: 11, peakDay: 17, activeStart: [11, 6], activeEnd: [11, 30], zenithalHourlyRate: 15, radiant: "狮子座", radiantRa: 10.13, radiantDec: 22, viewingAdvice: "黎明前辐射点最高，普通年份不应按历史暴雨强度做期待。" },
   { id: "geminids", name: "双子座流星雨", peakMonth: 12, peakDay: 14, activeStart: [12, 4], activeEnd: [12, 20], zenithalHourlyRate: 150, radiant: "双子座", radiantRa: 7.47, radiantDec: 33, viewingAdvice: "入夜后即可拍摄，午夜前后辐射点更高且持续时间长。" },
 ];
+const chinaYearFormatter = new Intl.DateTimeFormat("en", { year: "numeric", timeZone: "Asia/Shanghai" });
 
 function chinaNight(year: number, month: number, day: number, hour = 23) {
   return new Date(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:00:00+08:00`);
@@ -38,7 +39,7 @@ function boundaryYear(peakYear: number, boundaryMonth: number, peakMonth: number
 }
 
 export function getMeteorShowers(city: City, at = new Date()): MeteorShowerForecast[] {
-  const chinaYear = Number(new Intl.DateTimeFormat("en", { year: "numeric", timeZone: "Asia/Shanghai" }).format(at));
+  const chinaYear = Number(chinaYearFormatter.format(at));
   const observer = new Observer(city.latitude, city.longitude, 0);
   return [chinaYear, chinaYear + 1]
     .flatMap((year) => MAJOR_SHOWERS.map((definition) => {

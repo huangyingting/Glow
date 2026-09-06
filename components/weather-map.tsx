@@ -106,7 +106,7 @@ export default function WeatherMap({ location, mode, score, annotations, onPick 
     });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "bottom-right");
-    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "天气 · Open-Meteo · ECMWF / CMA / CAMS" }), "bottom-left");
+    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "天气 · Open-Meteo 多模式指导" }), "bottom-left");
 
     const markerNode = document.createElement("div");
     markerNode.className = "map-pin-marker";

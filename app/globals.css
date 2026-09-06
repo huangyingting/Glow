@@ -353,6 +353,7 @@ a { color: inherit; text-decoration: none; }
 .source-disclosure p { margin: 0; padding: 9px 0; border-top: 1px solid var(--line-soft); display: flex; align-items: flex-start; gap: 8px; }
 .source-disclosure p > i { flex: 0 0 auto; width: 5px; height: 5px; margin-top: 4px; border-radius: 50%; background: #9a9d9c; }
 .source-disclosure p > i.available { background: var(--green); }
+.source-disclosure p > i.unavailable { background: var(--orange); }
 .source-disclosure p > span { min-width: 0; display: grid; gap: 1px; }
 .source-disclosure strong { font-size: 11px; }
 .source-disclosure a { text-decoration: underline; text-underline-offset: 2px; }
@@ -403,6 +404,8 @@ a { color: inherit; text-decoration: none; }
 .clock-track { position: relative; height: 52px; border-radius: 7px; background: #333945; }
 .clock-track .daylight-band { position: absolute; z-index: 0; top: 0; bottom: 0; background: linear-gradient(90deg,#d6c3a3,#e7ddba 45%,#d3b090); }
 .clock-track .selected-window { position: absolute; z-index: 1; bottom: 5px; height: 4px; border-radius: 2px; background: var(--orange); box-shadow: 0 0 0 2px rgba(255,255,255,.4); }
+.clock-cursor { position: absolute; z-index: 4; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,.95); transform: translateX(-1px); pointer-events: none; box-shadow: 0 0 0 1px rgba(36,39,45,.24); }
+.clock-cursor::before { content: ""; position: absolute; top: 0; left: 50%; width: 0; height: 0; border: 4px solid transparent; border-top-color: var(--orange-soft); transform: translateX(-50%); }
 .clock-track > i { position: absolute; z-index: 2; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.22); }
 .clock-track > i small { position: absolute; left: 3px; bottom: 2px; color: rgba(255,255,255,.82); font: normal 9px var(--mono); text-shadow: 0 1px 2px rgba(20,22,26,.75); }
 .clock-track > i:last-of-type small { left: auto; right: 3px; }

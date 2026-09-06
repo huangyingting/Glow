@@ -48,6 +48,7 @@ test("daily agenda exposes every opportunity and links panel, time node, and sel
   await rainbowNode.click();
   await expect(page.locator(".selected-opportunity")).toContainText("单点网格不知道雨幕");
   await expect(page.locator(".map-direction-legend")).toContainText("建议观虹方向");
+  await expect(page.locator(".clock-cursor")).toBeVisible();
 
   const dayTabs = page.getByRole("tablist", { name: "七天机会日期" }).getByRole("tab");
   await expect(dayTabs).toHaveCount(7);
@@ -70,6 +71,9 @@ test("weather workspace follows a familiar hourly cloud, rain, and wind workflow
   await expect(hours).toHaveCount(24);
   await hours.nth(18).click();
   await expect(hours.nth(18)).toHaveAttribute("aria-selected", "true");
+  await hours.nth(18).press("ArrowDown");
+  await expect(hours.nth(19)).toHaveAttribute("aria-selected", "true");
+  await expect(hours.nth(19)).toBeFocused();
 
   await page.getByRole("tab", { name: "降雨" }).click();
   await expect(page.getByLabel("降雨详情")).toContainText("概率与实际量级分开显示");

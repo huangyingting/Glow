@@ -10,6 +10,7 @@ class RequestValidationError extends Error {}
 const coordinateBuckets = new Map<string, { count: number; resetAt: number }>();
 const COORDINATE_LIMIT = 90;
 const RATE_WINDOW_MS = 60_000;
+const MAX_COORDINATE_BUCKETS = 2_000;
 
 function invalidRequest(message: string): never {
   throw new RequestValidationError(message);
@@ -21,10 +22,17 @@ function coordinateRateLimit(request: NextRequest) {
   const key = forwarded || request.headers.get("x-real-ip") || "anonymous";
   const current = coordinateBuckets.get(key);
   if (!current || current.resetAt <= now) {
-    coordinateBuckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    if (coordinateBuckets.size > 2_000) {
-      for (const [bucketKey, bucket] of coordinateBuckets) if (bucket.resetAt <= now) coordinateBuckets.delete(bucketKey);
+    if (coordinateBuckets.size >= MAX_COORDINATE_BUCKETS) {
+      for (const [bucketKey, bucket] of coordinateBuckets) {
+        if (bucket.resetAt <= now) coordinateBuckets.delete(bucketKey);
+      }
+      while (coordinateBuckets.size >= MAX_COORDINATE_BUCKETS) {
+        const oldestKey = coordinateBuckets.keys().next().value;
+        if (oldestKey === undefined) break;
+        coordinateBuckets.delete(oldestKey);
+      }
     }
+    coordinateBuckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
     return null;
   }
   current.count += 1;
