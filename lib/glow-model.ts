@@ -6,6 +6,18 @@ function bell(value: number, ideal: number, width: number) {
   return Math.exp(-0.5 * ((value - ideal) / width) ** 2);
 }
 
+export interface GlowContext {
+  solarAltitude: number;
+}
+
+function illuminationFactor(solarAltitude: number) {
+  if (solarAltitude <= -6 || solarAltitude >= 9) return 0.55;
+  if (solarAltitude < -4) return 0.55 + (solarAltitude + 6) * 0.125;
+  if (solarAltitude < -1) return 0.8 + (solarAltitude + 4) * (0.2 / 3);
+  if (solarAltitude <= 2.5) return 1;
+  return 1 - (solarAltitude - 2.5) * (0.45 / 6.5);
+}
+
 function present(values: (number | null)[]) {
   return values.filter((value): value is number => value !== null && Number.isFinite(value));
 }
@@ -29,7 +41,7 @@ export function averageMetrics(items: SkyMetrics[]): SkyMetrics {
   };
 }
 
-export function scoreGlow(metrics: SkyMetrics, kind: EventKind): ScoreResult {
+export function scoreGlow(metrics: SkyMetrics, kind: EventKind, context?: GlowContext): ScoreResult {
   let rawScore = 34;
   let knownWeight = 0;
   const totalWeight = 100;
@@ -47,14 +59,14 @@ export function scoreGlow(metrics: SkyMetrics, kind: EventKind): ScoreResult {
   if (metrics.midCloud !== null || metrics.highCloud !== null) {
     const mid = metrics.midCloud ?? metrics.highCloud ?? 0;
     const high = metrics.highCloud ?? metrics.midCloud ?? 0;
-    const texture = bell(mid, kind === "dawn" ? 48 : 55, 27) * 13 + bell(high, 52, 32) * 15;
+    const texture = bell(mid, 52, 28) * 13 + bell(high, 52, 32) * 15;
     add("染色云层", texture - 7, `${Math.round(mid)}% 中云 · ${Math.round(high)}% 高云`);
     knownWeight += 30;
   }
 
   if (metrics.lowCloud !== null) {
     const penalty = metrics.lowCloud <= 18 ? 8 : metrics.lowCloud <= 42 ? 4 - (metrics.lowCloud - 18) * 0.35 : -4 - (metrics.lowCloud - 42) * 0.52;
-    add("地平线通透度", clamp(penalty, -28, 8), `${Math.round(metrics.lowCloud)}% 低云`);
+    add("近地低云遮挡", clamp(penalty, -28, 8), `${Math.round(metrics.lowCloud)}% 低云；单点数据不能证明远处光路畅通`);
     knownWeight += 24;
   }
 
@@ -74,8 +86,8 @@ export function scoreGlow(metrics: SkyMetrics, kind: EventKind): ScoreResult {
   }
 
   if (metrics.humidity !== null) {
-    const value = metrics.humidity < 55 ? 5 : metrics.humidity < 78 ? 2 : -(metrics.humidity - 78) * 0.42;
-    add("近地湿度", clamp(value, -10, 5), `${Math.round(metrics.humidity)}% 相对湿度`);
+    const value = metrics.humidity <= 82 ? 0 : -(metrics.humidity - 82) * 0.55;
+    add("近地湿度", clamp(value, -10, 0), `${Math.round(metrics.humidity)}% 相对湿度；仅用于识别雾霾与低层遮挡风险`);
     knownWeight += 8;
   }
 
@@ -83,15 +95,26 @@ export function scoreGlow(metrics: SkyMetrics, kind: EventKind): ScoreResult {
     const aod = metrics.aerosolOpticalDepth;
     const pm25 = metrics.pm25;
     let value = 0;
-    if (aod !== null) value += aod < 0.08 ? -2 : aod <= 0.35 ? 4 : aod <= 0.7 ? 1 : -Math.min((aod - 0.7) * 18, 12);
+    if (aod !== null) value += aod < 0.08 ? -1 : aod <= 0.35 ? 2 : aod <= 0.7 ? 0 : -Math.min((aod - 0.7) * 18, 12);
     if (pm25 !== null && pm25 > 75) value -= Math.min((pm25 - 75) * 0.11, 9);
-    add("气溶胶散射", clamp(value, -15, 5), `${aod === null ? "—" : aod.toFixed(2)} AOD · PM₂.₅ ${pm25 === null ? "—" : Math.round(pm25)}`);
+    add("气溶胶背景", clamp(value, -15, 2), `${aod === null ? "—" : aod.toFixed(2)} AOD · PM₂.₅ ${pm25 === null ? "—" : Math.round(pm25)}；粗分辨率背景修正`);
     knownWeight += 10;
   }
 
   const completeness = Math.round((knownWeight / totalWeight) * 100);
   const uncertaintyPull = (100 - completeness) * 0.13;
-  const probability = Math.round(clamp(rawScore + (50 - rawScore) * (uncertaintyPull / 100), 4, 96));
+  const weatherScore = clamp(rawScore + (50 - rawScore) * (uncertaintyPull / 100), 4, 96);
+  const illumination = context ? illuminationFactor(context.solarAltitude) : 1;
+  const probability = Math.round(clamp(4 + (weatherScore - 4) * illumination, 4, 96));
+  if (context) {
+    const value = probability - Math.round(weatherScore);
+    contributions.push({
+      name: "暮光时段匹配",
+      value,
+      direction: value < -2 ? "negative" : "neutral",
+      detail: `${kind === "dawn" ? "日出前后" : "日落前后"}太阳高度 ${context.solarAltitude.toFixed(1)}°；这是经验时段先验，不代表目标云一定仍被直射`,
+    });
+  }
 
   return { probability, rawScore: Math.round(rawScore), completeness, contributions };
 }

@@ -93,25 +93,36 @@ function circularAverage(values: (number | null)[]): number | null {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 
-function indicesNear(times: string[], target: string, kind: EventKind) {
-  const targetTime = new Date(target).getTime();
-  const start = kind === "dawn" ? -75 : -60;
-  const end = kind === "dawn" ? 60 : 90;
-  const matched = times
-    .map((time, index) => ({ index, minutes: (new Date(time).getTime() - targetTime) / 60000 }))
-    .filter(({ minutes }) => minutes >= start && minutes <= end)
-    .map(({ index }) => index);
-
-  if (matched.length) return matched;
-  let closest = 0;
-  times.forEach((time, index) => {
-    if (Math.abs(new Date(time).getTime() - targetTime) < Math.abs(new Date(times[closest]).getTime() - targetTime)) closest = index;
-  });
-  return [closest];
+function forecastInstant(value: string) {
+  return new Date(value.endsWith("Z") ? value : `${value}:00+08:00`);
 }
 
-function valuesAt(data: Record<string, (string | number | null)[]>, key: string, indices: number[]) {
-  return indices.map((index) => asNumber(data[key]?.[index]));
+function interpolationPosition(times: string[], target: Date) {
+  const targetTime = target.getTime();
+  const exact = times.findIndex((time) => forecastInstant(time).getTime() === targetTime);
+  if (exact >= 0) return { lower: exact, upper: exact, fraction: 0 };
+  const upper = times.findIndex((time) => forecastInstant(time).getTime() > targetTime);
+  if (upper <= 0) {
+    const index = upper === 0 ? 0 : times.length - 1;
+    return { lower: index, upper: index, fraction: 0 };
+  }
+  const lower = upper - 1;
+  const lowerTime = forecastInstant(times[lower]).getTime();
+  const upperTime = forecastInstant(times[upper]).getTime();
+  return { lower, upper, fraction: (targetTime - lowerTime) / (upperTime - lowerTime) };
+}
+
+function interpolatedValue(data: Record<string, (string | number | null)[]>, key: string, position: ReturnType<typeof interpolationPosition>) {
+  const lower = asNumber(data[key]?.[position.lower]);
+  const upper = asNumber(data[key]?.[position.upper]);
+  if (lower === null) return upper;
+  if (upper === null || position.lower === position.upper) return lower;
+  return lower + (upper - lower) * position.fraction;
+}
+
+function intervalValue(data: Record<string, (string | number | null)[]>, key: string, position: ReturnType<typeof interpolationPosition>) {
+  const index = position.fraction > 0 ? position.upper : position.lower;
+  return asNumber(data[key]?.[index]);
 }
 
 function timeIndex(data: OpenMeteoForecast | OpenMeteoAir, time: string) {
@@ -123,28 +134,33 @@ function timeIndex(data: OpenMeteoForecast | OpenMeteoAir, time: string) {
   return indices.get(time) ?? -1;
 }
 
-function airMetricsAt(air: OpenMeteoAir | null, target: string, kind: EventKind) {
+function airMetricsAtInstant(air: OpenMeteoAir | null, target: Date) {
   if (!air) return { aerosolOpticalDepth: null, pm25: null };
-  const indices = indicesNear(air.hourly.time, target, kind);
+  const position = interpolationPosition(air.hourly.time, target);
   return {
-    aerosolOpticalDepth: average(valuesAt(air.hourly, "aerosol_optical_depth", indices)),
-    pm25: average(valuesAt(air.hourly, "pm2_5", indices)),
+    aerosolOpticalDepth: interpolatedValue(air.hourly, "aerosol_optical_depth", position),
+    pm25: interpolatedValue(air.hourly, "pm2_5", position),
   };
 }
 
-function metricsAt(model: OpenMeteoForecast, air: OpenMeteoAir | null, target: string, kind: EventKind): SkyMetrics {
-  const indices = indicesNear(model.hourly.time, target, kind);
-  const airMetrics = airMetricsAt(air, target, kind);
+function glowMetricsAt(model: OpenMeteoForecast, air: OpenMeteoAir | null, target: Date): SkyMetrics {
+  const position = interpolationPosition(model.hourly.time, target);
+  const airMetrics = airMetricsAtInstant(air, target);
   return {
-    lowCloud: average(valuesAt(model.hourly, "cloud_cover_low", indices)),
-    midCloud: average(valuesAt(model.hourly, "cloud_cover_mid", indices)),
-    highCloud: average(valuesAt(model.hourly, "cloud_cover_high", indices)),
-    humidity: average(valuesAt(model.hourly, "relative_humidity_2m", indices)),
-    visibility: average(valuesAt(model.hourly, "visibility", indices)),
-    precipitationProbability: average(valuesAt(model.hourly, "precipitation_probability", indices)),
-    precipitation: average(valuesAt(model.hourly, "precipitation", indices)),
+    lowCloud: interpolatedValue(model.hourly, "cloud_cover_low", position),
+    midCloud: interpolatedValue(model.hourly, "cloud_cover_mid", position),
+    highCloud: interpolatedValue(model.hourly, "cloud_cover_high", position),
+    humidity: interpolatedValue(model.hourly, "relative_humidity_2m", position),
+    visibility: interpolatedValue(model.hourly, "visibility", position),
+    precipitationProbability: intervalValue(model.hourly, "precipitation_probability", position),
+    precipitation: intervalValue(model.hourly, "precipitation", position),
     ...airMetrics,
   };
+}
+
+function glowCandidateTimes(eventTime: string) {
+  const event = forecastInstant(eventTime).getTime();
+  return [-30, -20, -10, 0, 10, 20, 30].map((minutes) => new Date(event + minutes * 60_000));
 }
 
 function fogMetricsAt(model: OpenMeteoForecast, time: string): FogMetrics {
@@ -207,10 +223,6 @@ function averageNightMetrics(items: NightWeatherMetrics[]): NightWeatherMetrics 
     windGusts: value("windGusts"),
     windDirection: circularAverage(items.map((item) => item.windDirection)),
   };
-}
-
-function forecastInstant(time: string) {
-  return new Date(`${time}:00+08:00`);
 }
 
 function weatherAnalysisMetricsAt(city: City, model: OpenMeteoForecast, time: string): WeatherAnalysisMetrics {
@@ -436,7 +448,7 @@ function eventSummary(kind: EventKind, probability: number, metrics: SkyMetrics)
   const label = kind === "dawn" ? "朝霞" : "晚霞";
   if ((metrics.lowCloud ?? 0) > 70) return `低云可能遮住地平线，${label}展开空间有限`;
   if ((metrics.precipitationProbability ?? 0) > 60) return `降水信号偏强，建议临近时再看一次更新`;
-  if (probability >= 76) return `高空有可染色云层，地平线也留出了光路`;
+  if (probability >= 76) return `本地点低云较少，中高云与暮光时段较有利`;
   if (probability >= 58) return `云层结构不错，值得在日出日前后留意天空`;
   if (probability >= 38) return `仍有变化窗口，模式更新后可能上调`;
   return `关键条件暂不配合，适合把期待留给下一天`;
@@ -446,27 +458,33 @@ function buildEvent(
   kind: EventKind,
   time: string,
   leadDays: number,
+  city: City,
   available: { config: ModelConfig; data: OpenMeteoForecast }[],
   air: OpenMeteoAir | null,
 ): EventForecast {
-  const byModel = available.map(({ config, data }) => {
-    const metrics = metricsAt(data, air, time, kind);
-    return { config, metrics, score: scoreGlow(metrics, kind) };
+  const candidates = glowCandidateTimes(time).map((candidateTime) => {
+    const solarAltitude = getSolarAltitude(city, candidateTime);
+    const byModel = available.map(({ config, data }) => {
+      const metrics = glowMetricsAt(data, air, candidateTime);
+      return { config, metrics, score: scoreGlow(metrics, kind, { solarAltitude }) };
+    });
+    const probability = Math.round(byModel.reduce((sum, item) => sum + item.score.probability, 0) / byModel.length);
+    return { candidateTime, solarAltitude, byModel, probability };
   });
-  const metrics = averageMetrics(byModel.map(({ metrics: value }) => value));
-  const combined = scoreGlow(metrics, kind);
-  const probability = Math.round(byModel.reduce((sum, item) => sum + item.score.probability, 0) / byModel.length);
+  const best = candidates.reduce((current, candidate) => candidate.probability > current.probability ? candidate : current);
+  const metrics = averageMetrics(best.byModel.map(({ metrics: value }) => value));
+  const combined = scoreGlow(metrics, kind, { solarAltitude: best.solarAltitude });
 
   return {
     kind,
-    time,
-    probability,
-    confidence: confidenceFromScores(byModel.map(({ score }) => score), leadDays),
-    level: probabilityLevel(probability),
-    summary: eventSummary(kind, probability, metrics),
+    time: best.candidateTime.toISOString(),
+    probability: best.probability,
+    confidence: confidenceFromScores(best.byModel.map(({ score }) => score), leadDays),
+    level: probabilityLevel(best.probability),
+    summary: eventSummary(kind, best.probability, metrics),
     metrics,
     contributions: combined.contributions.sort((a, b) => Math.abs(b.value) - Math.abs(a.value)),
-    modelScores: byModel.map(({ config, score }) => ({ model: config.name, probability: score.probability })),
+    modelScores: best.byModel.map(({ config, score }) => ({ model: config.name, probability: score.probability })),
   };
 }
 
@@ -586,8 +604,8 @@ export async function getForecast(city: City, options: ForecastOptions = {}): Pr
       ...formatted,
       sunrise,
       sunset,
-      dawn: buildEvent("dawn", sunrise, index, available, airResult),
-      dusk: buildEvent("dusk", sunset, index, available, airResult),
+      dawn: buildEvent("dawn", sunrise, index, city, available, airResult),
+      dusk: buildEvent("dusk", sunset, index, city, available, airResult),
       fog: buildFogForecast(date, index, available),
       solar,
       moon: buildMoonForecast(city, date, index, candidateTimes, available),

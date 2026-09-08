@@ -36,7 +36,9 @@ Open-Meteo 的开放接口适合非商业使用、受公平调用限制，并要
 
 ## 模型边界
 
-当前的 0–100% 是可解释的机会指数：分层云、降水、能见度、湿度和气溶胶的贡献相加，再按数据完整度收缩；各数值模式独立得分后求平均，并以分歧、数据完整度和预报提前量生成置信度。月亮和星空也逐模式评估当晚候选小时；月亮强调月面高度、遮云、能见度、降水、结露和长焦稳定，星空强调太阳低于天文暮光阈值、月光干扰、三层云、结露和阵风。
+当前的 0–100% 是可解释的机会指数：霞光在日出日落前后按 10 分钟候选时刻计算太阳高度，把它作为有界的暮光时段先验，再结合分层云、降水、能见度、湿度和气溶胶背景评分；不会把整个时段平均成一个不存在的中间云况。小时降水量和降水概率按 Open-Meteo 的“前一小时”区间语义取覆盖候选时刻的区间，不做瞬时线性插值。各数值模式独立得分后求平均，并以多中心分歧、数据完整度和预报提前量生成参考度。该参考度不是 ECMWF 集合成员概率。月亮和星空也逐模式评估当晚候选小时；月亮强调月面高度、遮云、能见度、降水、结露和长焦稳定，星空强调太阳低于天文暮光阈值、月光干扰、三层云、结露和阵风。
+
+霞光的必要物理条件是：太阳到目标云体的光路足够通透、目标云仍在地球阴影之上、云体具有适合散射的光学性质，而且观察者到云体的视线未被低云或地形挡住。当前单点接口只能可靠处理其中的太阳几何和本地点位云况，因此“低云”只称为近地遮挡信号，不能声称远处地平线已经畅通；近地相对湿度不再作为正向成因，AOD 也只做弱的非单调背景修正。
 
 雾景指数目前是摄影规划筛选器，不是严格的平流雾分类器：它用露点差、湿度、风速、低云、能见度和非降水信号寻找每天最佳窗口，但没有精细 DEM、坡向、水温、海陆温差和水面距离。因此产品会展示“雾景潜势”并保留该限制，而不是给出虚假的确定性结论。
 
@@ -55,6 +57,8 @@ Open-Meteo 的开放接口适合非商业使用、受公平调用限制，并要
 - 按地区、季节、提前时效分别做可靠性曲线和 Brier Score 回测；
 - 对分数做 isotonic regression 或 Platt scaling 等概率校准；
 - 定期检查不同模式版本升级造成的数据漂移。
+
+下一阶段的最高收益不是继续手调权重，而是沿太阳方位采样多个预报点，分开判断目标云、向阳光路和观察者视线；随后接入 ECMWF 集合成员逐成员评分，报告中位数、分位数和有利成员比例。真正的物理亮度预测还需要区域三维云水/冰水、云顶云底、光学厚度、DEM 地平线与卫星临近云产品。
 
 ## 云、雨和彩虹字段语义
 
@@ -77,6 +81,9 @@ Open-Meteo 的开放接口适合非商业使用、受公平调用限制，并要
 - [Open-Meteo Air Quality API](https://open-meteo.com/en/docs/air-quality-api)
 - [Open-Meteo licence](https://open-meteo.com/en/licence)
 - [Open-Meteo pricing and commercial-use terms](https://open-meteo.com/en/pricing)
+- [WMO International Cloud Atlas — cloud optical thickness](https://cloudatlas.wmo.int/en/optical-thickness.html)
+- [ECMWF — quantifying forecast uncertainty](https://www.ecmwf.int/en/research/modelling-and-prediction/quantifying-forecast-uncertainty)
+- [Saito & Iwabuchi 2015 — twilight radiative transfer](https://doi.org/10.5194/amt-8-4295-2015)
 - [彩云天气 API](https://docs.caiyunapp.com/weather-api/)
 - [和风天气开发文档](https://dev.qweather.com/docs/)
 - [Astronomy Engine](https://github.com/cosinekitty/astronomy)

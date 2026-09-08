@@ -90,6 +90,20 @@ describe("forecast subsystem degradation", () => {
     expect(response.days).toHaveLength(7);
   });
 
+  it("uses the containing hourly precipitation interval when choosing a glow window", async () => {
+    const changing = forecastFixture();
+    changing.hourly.precipitation_probability = values(0);
+    changing.hourly.precipitation = values(0);
+    changing.hourly.precipitation_probability[6] = 100;
+    changing.hourly.precipitation[6] = 5;
+    const response = await getForecast(CITIES[0], {
+      now: new Date("2026-08-03T00:00:00Z"),
+      fetcher: async (url: URL) => url.hostname.startsWith("air-quality") ? airFixture : changing,
+    });
+    expect(new Date(response.days[0].dawn.time).getTime()).toBeLessThan(new Date("2026-08-02T21:20:00Z").getTime());
+    expect(response.days[0].dawn.metrics.precipitationProbability).toBe(0);
+  });
+
   it("rejects malformed success payloads instead of crashing later in the model", async () => {
     await expect(getForecast(CITIES[0], {
       now: new Date("2026-08-03T00:00:00Z"),

@@ -168,7 +168,7 @@ export function OpportunityPanel({ data, opportunities, selectedId, selectedInst
             <div>
               <span className={`status-pill status-${selected.status}`}>{STATUS_LABEL[selected.status]}</span>
               <b>{localTime(selected.start)}–{localTime(selected.end)}</b>
-              <em>预测可信度 {selected.confidence === null ? "暂无" : `${selected.confidence}/100`}</em>
+              <em>预测参考度 {selected.confidence === null ? "暂无" : `${selected.confidence}/100`}</em>
             </div>
           </div>
           <p>{selected.summary}</p>

@@ -47,7 +47,13 @@ test("daily agenda exposes every opportunity and links panel, time node, and sel
   const rainbowNode = page.locator(".opportunity-node[aria-label^='彩虹']");
   await rainbowNode.click();
   await expect(page.locator(".selected-opportunity")).toContainText("单点网格不知道雨幕");
-  await expect(page.locator(".map-direction-legend")).toContainText("建议观虹方向");
+  const rainbowDirection = page.locator(".selected-opportunity").getByText("地图方向");
+  if (await rainbowDirection.count()) {
+    await expect(page.locator(".map-direction-legend")).toContainText("建议观虹方向");
+  } else {
+    await expect(page.locator(".selected-opportunity")).toContainText("观测方位—");
+    await expect(page.locator(".map-direction-legend")).toHaveCount(0);
+  }
   await expect(page.locator(".clock-cursor")).toBeVisible();
 
   const dayTabs = page.getByRole("tablist", { name: "七天机会日期" }).getByRole("tab");

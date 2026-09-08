@@ -31,6 +31,23 @@ describe("glow scoring model", () => {
     expect(blocked.probability).toBeLessThan(25);
   });
 
+  it("uses solar altitude as a bounded twilight timing prior", () => {
+    const illuminated = scoreGlow(ideal, "dusk", { solarAltitude: -1 });
+    const earthShadow = scoreGlow(ideal, "dusk", { solarAltitude: -7 });
+    const broadDaylight = scoreGlow(ideal, "dusk", { solarAltitude: 10 });
+    expect(illuminated.probability).toBeGreaterThan(65);
+    expect(earthShadow.probability).toBeGreaterThan(35);
+    expect(earthShadow.probability).toBeLessThan(illuminated.probability);
+    expect(broadDaylight.probability).toBeLessThan(illuminated.probability);
+    expect(illuminated.contributions.some((item) => item.name === "暮光时段匹配")).toBe(true);
+    expect(earthShadow.contributions.find((item) => item.name === "暮光时段匹配")?.value).toBeLessThan(-20);
+  });
+
+  it("does not reward low surface humidity as a direct cause of vivid glow", () => {
+    const dry = scoreGlow({ ...ideal, humidity: 30 }, "dawn");
+    expect(dry.contributions.find((item) => item.name === "近地湿度")?.value).toBe(0);
+  });
+
   it("does not treat missing observations as perfect conditions", () => {
     const missing = scoreGlow({
       lowCloud: null,
